@@ -1,0 +1,48 @@
+# Fakturoid Invoice Processor Configuration
+
+# Processing Settings
+processing:
+  mode: "manual"  # Options: auto, manual, both
+  auto_submit: false
+  batch_size: 10
+  
+# Directories
+directories:
+  invoices: "data/invoices"
+  processed: "data/processed"
+  
+# AI Model Configuration
+ai:
+  provider: "anthropic"  # Options: anthropic, openai
+  model: "claude-3-5-sonnet-20241022"
+  temperature: 0.0
+  max_tokens: 4096
+  
+# Fakturoid API
+fakturoid:
+  base_url: "https://app.fakturoid.cz/api/v3"
+  timeout: 30
+  
+# Invoice Extraction Schema
+extraction:
+  required_fields:
+    - invoice_number
+    - issue_date
+    - supplier_name
+    - total_amount
+  optional_fields:
+    - due_date
+    - variable_symbol
+    - supplier_address
+    - supplier_ico
+    - supplier_dic
+    - line_items
+    - tax_amount
+    - currency
+    
+# Logging
+logging:
+  level: "INFO"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  file: "logs/processor.log"
+
