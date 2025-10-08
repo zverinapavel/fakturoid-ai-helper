@@ -56,12 +56,12 @@ class DirectoriesConfig(BaseModel):
     invoices: Path = Field(
         default_factory=lambda: Path(
             os.getenv("INVOICES_DIR", str(Path(__file__).parent.parent / "data" / "invoices"))
-        )
+        ).resolve()  # Resolve to absolute path
     )
     processed: Path = Field(
         default_factory=lambda: Path(
             os.getenv("PROCESSED_DIR", str(Path(__file__).parent.parent / "data" / "processed"))
-        )
+        ).resolve()  # Resolve to absolute path
     )
 
 
