@@ -4,7 +4,7 @@ import os
 import yaml
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -52,28 +52,24 @@ class ProcessingConfig(BaseModel):
 
 class DirectoriesConfig(BaseModel):
     """Directory configuration."""
-    project_root: Path = Path(__file__).parent.parent.resolve()
-    invoices: Path = Field(default=None)
-    processed: Path = Field(default=None)
+    project_root: Path = Field(default_factory=lambda: Path(__file__).parent.parent.resolve())
+    invoices: Path = Field(
+        default_factory=lambda: Path(
+            os.getenv("INVOICES_DIR", str(Path(__file__).parent.parent / "data" / "invoices"))
+        )
+    )
+    processed: Path = Field(
+        default_factory=lambda: Path(
+            os.getenv("PROCESSED_DIR", str(Path(__file__).parent.parent / "data" / "processed"))
+        )
+    )
     
-    def __init__(self, **data):
-        """Initialize with absolute paths."""
-        # Set defaults if not provided
-        if 'invoices' not in data or data['invoices'] is None:
-            env_path = os.getenv("INVOICES_DIR")
-            if env_path:
-                data['invoices'] = Path(env_path).resolve()
-            else:
-                data['invoices'] = (Path(__file__).parent.parent / "data" / "invoices").resolve()
-        
-        if 'processed' not in data or data['processed'] is None:
-            env_path = os.getenv("PROCESSED_DIR")
-            if env_path:
-                data['processed'] = Path(env_path).resolve()
-            else:
-                data['processed'] = (Path(__file__).parent.parent / "data" / "processed").resolve()
-        
-        super().__init__(**data)
+    @model_validator(mode='after')
+    def resolve_paths(self):
+        """Ensure all paths are absolute."""
+        self.invoices = self.invoices.resolve()
+        self.processed = self.processed.resolve()
+        return self
 
 
 class ExtractionConfig(BaseModel):
