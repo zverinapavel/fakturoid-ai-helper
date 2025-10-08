@@ -5,7 +5,7 @@ import base64
 from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta
 from pydantic import BaseModel
-from .ai_extractor import InvoiceData
+from ai_extractor import InvoiceData
 import re
 
 

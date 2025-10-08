@@ -6,10 +6,10 @@ from typing import List, Dict, Any, Optional
 import shutil
 from datetime import datetime
 
-from .config import config
-from .document_processor import DocumentProcessor
-from .ai_extractor import AIInvoiceExtractor, InvoiceData
-from .fakturoid_client import FakturoidClient
+from config import config
+from document_processor import DocumentProcessor
+from ai_extractor import AIInvoiceExtractor, InvoiceData
+from fakturoid_client import FakturoidClient
 
 
 class InvoiceProcessingAgent:
