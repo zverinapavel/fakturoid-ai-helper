@@ -133,8 +133,8 @@ class InvoiceProcessingAgent:
                 result['status'] = 'submitted'
                 self.logger.info(f"Submitted expense {invoice_data.invoice_number} to Fakturoid")
                 
-                # Move to processed directory
-                self._move_to_processed(file_path)
+                # Move to processed directory with descriptive name
+                self._move_to_processed(file_path, invoice_data, fakturoid_response)
             
         except Exception as e:
             self.logger.error(f"Error processing {file_path.name}: {e}")
@@ -211,19 +211,70 @@ class InvoiceProcessingAgent:
         
         print("="*60 + "\n")
     
-    def _move_to_processed(self, file_path: Path):
-        """Move processed file to processed directory.
+    def _move_to_processed(
+        self, 
+        file_path: Path, 
+        invoice_data: InvoiceData = None,
+        fakturoid_response: Dict[str, Any] = None
+    ):
+        """Move processed file to processed directory with descriptive name.
         
         Args:
             file_path: Path to file to move
+            invoice_data: Extracted invoice data
+            fakturoid_response: Response from Fakturoid API
         """
         self.processed_dir.mkdir(parents=True, exist_ok=True)
         
-        # Add timestamp to filename to avoid conflicts
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        new_name = f"{timestamp}_{file_path.name}"
+        # Build new filename: [expense_number] - [supplier] - [description] - [original_name].[ext]
+        parts = []
+        
+        # 1. Expense number from Fakturoid (e.g., "FP20240189")
+        if fakturoid_response and fakturoid_response.get('number'):
+            parts.append(fakturoid_response['number'])
+        
+        # 2. Supplier name
+        if invoice_data and invoice_data.supplier_name:
+            # Clean supplier name (remove invalid filename characters)
+            supplier = invoice_data.supplier_name
+            supplier = supplier.replace('/', '-').replace('\\', '-').replace(':', '-')
+            parts.append(supplier)
+        
+        # 3. Description from first line item or notes
+        description = None
+        if invoice_data:
+            if invoice_data.line_items and len(invoice_data.line_items) > 0:
+                # Get first line item description
+                first_item = invoice_data.line_items[0]
+                description = first_item.get('description') or first_item.get('name')
+            if not description and invoice_data.notes:
+                description = invoice_data.notes
+        
+        if description:
+            # Clean and truncate description
+            description = description.replace('/', '-').replace('\\', '-').replace(':', '-')
+            description = description[:50]  # Max 50 chars
+            parts.append(description)
+        
+        # 4. Original filename (without extension)
+        parts.append(file_path.stem)
+        
+        # Join parts and add extension
+        new_name = ' - '.join(parts) + file_path.suffix
+        
+        # Fallback: if no parts were added, use timestamp
+        if not parts or len(parts) == 1:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            new_name = f"{timestamp}_{file_path.name}"
+        
         destination = self.processed_dir / new_name
         
+        # Handle filename conflicts
+        if destination.exists():
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            new_name = f"{destination.stem}_{timestamp}{destination.suffix}"
+            destination = self.processed_dir / new_name
+        
         shutil.move(str(file_path), str(destination))
-        self.logger.info(f"Moved {file_path.name} to processed directory")
+        self.logger.info(f"Moved {file_path.name} → {new_name}")
 
