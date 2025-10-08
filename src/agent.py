@@ -128,10 +128,10 @@ class InvoiceProcessingAgent:
             
             # Submit to Fakturoid
             if self.auto_submit or not review:
-                fakturoid_response = self.fakturoid_client.submit_invoice(invoice_data)
+                fakturoid_response = self.fakturoid_client.submit_expense(invoice_data)
                 result['fakturoid_response'] = fakturoid_response
                 result['status'] = 'submitted'
-                self.logger.info(f"Submitted invoice {invoice_data.invoice_number} to Fakturoid")
+                self.logger.info(f"Submitted expense {invoice_data.invoice_number} to Fakturoid")
                 
                 # Move to processed directory
                 self._move_to_processed(file_path)
