@@ -471,21 +471,41 @@ class FakturoidClient:
             # Use structured address if available, otherwise fallback to supplier_address
             street = supplier_street or supplier_address
             
-            # Determine country (default to CZ if not specified and has IČO)
+            # Determine country
             country = supplier_country
             if not country:
-                country = "CZ" if supplier_ico else None
+                # Try to detect from VAT number prefix
+                if vat_no and len(vat_no) >= 2:
+                    vat_prefix = vat_no[:2].upper()
+                    # Common EU country codes
+                    if vat_prefix in ['DE', 'GB', 'FR', 'AT', 'SK', 'PL', 'NL', 'IT', 'ES', 'BE', 'IE', 'DK', 'SE', 'FI']:
+                        country = vat_prefix
+                    elif vat_prefix == 'CZ':
+                        country = "CZ"
+                # If has IČO, it's Czech
+                elif supplier_ico:
+                    country = "CZ"
+                # For foreign companies without clear country, don't default to CZ
+                # Leave as None and it won't be sent to API
             
-            subject_data = FakturoidSubject(
-                name=supplier_name,
-                registration_no=supplier_ico,
-                vat_no=vat_no,
-                street=street,
-                city=supplier_city,
-                zip=supplier_zip,
-                country=country or "CZ"
-            )
-            subject_data_dict = subject_data.model_dump(exclude_none=True)
+            # Build subject data - only include non-empty fields
+            subject_data_dict = {
+                'name': supplier_name
+            }
+            
+            # Add optional fields only if they have values
+            if supplier_ico:
+                subject_data_dict['registration_no'] = supplier_ico
+            if vat_no:
+                subject_data_dict['vat_no'] = vat_no
+            if street:
+                subject_data_dict['street'] = street
+            if supplier_city:
+                subject_data_dict['city'] = supplier_city
+            if supplier_zip:
+                subject_data_dict['zip'] = supplier_zip
+            if country:
+                subject_data_dict['country'] = country
         
         created_subject = self.create_subject(subject_data_dict)
         print(f"  ✓ Subject created with ID: {created_subject.get('id')}")
