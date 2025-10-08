@@ -143,6 +143,47 @@ class InvoiceProcessingAgent:
         
         return result
     
+    def submit_extracted(
+        self,
+        file_path: Path,
+        invoice_data: InvoiceData
+    ) -> Dict[str, Any]:
+        """Submit an already extracted invoice to Fakturoid and move file.
+        
+        Useful for manual review workflow where you extract first, review, then submit.
+        
+        Args:
+            file_path: Path to invoice file
+            invoice_data: Already extracted invoice data
+            
+        Returns:
+            Result dictionary with Fakturoid response
+        """
+        result = {
+            'file': file_path.name,
+            'status': 'pending',
+            'extracted_data': invoice_data.model_dump(),
+            'fakturoid_response': None,
+            'error': None
+        }
+        
+        try:
+            # Submit to Fakturoid
+            fakturoid_response = self.fakturoid_client.submit_expense(invoice_data)
+            result['fakturoid_response'] = fakturoid_response
+            result['status'] = 'submitted'
+            self.logger.info(f"Submitted expense {invoice_data.invoice_number} to Fakturoid")
+            
+            # Move to processed directory with descriptive name
+            self._move_to_processed(file_path, invoice_data, fakturoid_response)
+            
+        except Exception as e:
+            self.logger.error(f"Error submitting {file_path.name}: {e}")
+            result['status'] = 'error'
+            result['error'] = str(e)
+        
+        return result
+    
     def process_batch(
         self,
         review: bool = True,
