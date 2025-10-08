@@ -20,12 +20,23 @@ class AIConfig(BaseModel):
 
 
 class FakturoidConfig(BaseModel):
-    """Fakturoid API configuration."""
-    email: str = Field(default_factory=lambda: os.getenv("FAKTUROID_EMAIL", ""))
-    api_key: str = Field(default_factory=lambda: os.getenv("FAKTUROID_API_KEY", ""))
+    """Fakturoid API configuration (OAuth 2.0 Client Credentials Flow)."""
+    # For backward compatibility, email and api_key map to client_id and client_secret
+    email: str = Field(default_factory=lambda: os.getenv("FAKTUROID_CLIENT_ID", os.getenv("FAKTUROID_EMAIL", "")))
+    api_key: str = Field(default_factory=lambda: os.getenv("FAKTUROID_CLIENT_SECRET", os.getenv("FAKTUROID_API_KEY", "")))
     account_slug: str = Field(default_factory=lambda: os.getenv("FAKTUROID_ACCOUNT_SLUG", ""))
     base_url: str = "https://app.fakturoid.cz/api/v3"
     timeout: int = 30
+    
+    @property
+    def client_id(self) -> str:
+        """Alias for email field (OAuth 2.0 Client ID)."""
+        return self.email
+    
+    @property
+    def client_secret(self) -> str:
+        """Alias for api_key field (OAuth 2.0 Client Secret)."""
+        return self.api_key
 
 
 class ProcessingConfig(BaseModel):
@@ -37,8 +48,9 @@ class ProcessingConfig(BaseModel):
 
 class DirectoriesConfig(BaseModel):
     """Directory configuration."""
-    invoices: Path = Path("data/invoices")
-    processed: Path = Path("data/processed")
+    project_root: Path = Path(__file__).parent.parent
+    invoices: Path = Field(default_factory=lambda: Path(__file__).parent.parent / "data" / "invoices")
+    processed: Path = Field(default_factory=lambda: Path(__file__).parent.parent / "data" / "processed")
 
 
 class ExtractionConfig(BaseModel):

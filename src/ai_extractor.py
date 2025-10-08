@@ -68,15 +68,22 @@ Return ONLY valid JSON in this exact format:
 
 If a field is not visible or unclear, omit it from the JSON. Be precise and only extract data that you can clearly see in the document."""
     
-    def __init__(self, api_key: str, model: str = "claude-3-5-sonnet-20241022"):
+    def __init__(self, config_or_api_key, model: str = "claude-3-5-sonnet-20241022"):
         """Initialize AI extractor.
         
         Args:
-            api_key: Anthropic API key
-            model: Model to use for extraction
+            config_or_api_key: Either a Config object or an API key string
+            model: Model to use for extraction (ignored if config is provided)
         """
-        self.client = Anthropic(api_key=api_key)
-        self.model = model
+        # Support both config object and direct API key
+        if hasattr(config_or_api_key, 'anthropic_api_key'):
+            # It's a config object
+            self.client = Anthropic(api_key=config_or_api_key.anthropic_api_key)
+            self.model = config_or_api_key.ai.model
+        else:
+            # It's an API key string
+            self.client = Anthropic(api_key=config_or_api_key)
+            self.model = model
     
     def extract_from_image(
         self, 
@@ -179,6 +186,33 @@ If a field is not visible or unclear, omit it from the JSON. Be precise and only
         # Parse and validate with Pydantic
         return InvoiceData(**json_data)
     
+    def extract_invoice_data(self, file_path: Path) -> Dict[str, Any]:
+        """Extract invoice data from a file (PDF or image).
+        
+        Args:
+            file_path: Path to invoice file
+            
+        Returns:
+            Extracted invoice data as dictionary
+        """
+        from .document_processor import DocumentProcessor
+        
+        doc_processor = DocumentProcessor(file_path.parent)
+        
+        # Convert file to base64
+        base64_data, media_type = doc_processor.file_to_base64(file_path)
+        
+        # Extract based on file type
+        if doc_processor.is_pdf(file_path):
+            invoice_data = self.extract_from_pdf(base64_data, source_file=file_path.name)
+        elif doc_processor.is_image(file_path):
+            invoice_data = self.extract_from_image(base64_data, media_type=media_type, source_file=file_path.name)
+        else:
+            raise ValueError(f"Unsupported file type: {file_path.suffix}")
+        
+        # Return as dictionary
+        return invoice_data.model_dump()
+    
     def _extract_json_from_text(self, text: str) -> Dict[str, Any]:
         """Extract JSON object from text response.
         
@@ -198,3 +232,6 @@ If a field is not visible or unclear, omit it from the JSON. Be precise and only
         json_str = text[start_idx:end_idx + 1]
         return json.loads(json_str)
 
+
+# Alias for convenience
+AIExtractor = AIInvoiceExtractor
