@@ -17,6 +17,7 @@ class InvoiceProcessingAgent:
     
     def __init__(
         self,
+        config_obj=None,
         invoices_dir: Optional[Path] = None,
         processed_dir: Optional[Path] = None,
         auto_submit: bool = False
@@ -24,26 +25,22 @@ class InvoiceProcessingAgent:
         """Initialize the agent.
         
         Args:
-            invoices_dir: Directory containing invoices to process
-            processed_dir: Directory to move processed invoices
-            auto_submit: Whether to automatically submit to Fakturoid
+            config_obj: Config object (if None, uses global config)
+            invoices_dir: Directory containing invoices to process (overrides config)
+            processed_dir: Directory to move processed invoices (overrides config)
+            auto_submit: Whether to automatically submit to Fakturoid (overrides config)
         """
-        self.invoices_dir = invoices_dir or config.directories.invoices
-        self.processed_dir = processed_dir or config.directories.processed
-        self.auto_submit = auto_submit or config.processing.auto_submit
+        # Use provided config or global config
+        self.config = config_obj if config_obj is not None else config
         
-        # Initialize components
+        self.invoices_dir = invoices_dir or self.config.directories.invoices
+        self.processed_dir = processed_dir or self.config.directories.processed
+        self.auto_submit = auto_submit or self.config.processing.auto_submit
+        
+        # Initialize components with config
         self.doc_processor = DocumentProcessor(self.invoices_dir)
-        self.ai_extractor = AIInvoiceExtractor(
-            api_key=config.anthropic_api_key,
-            model=config.ai.model
-        )
-        self.fakturoid_client = FakturoidClient(
-            email=config.fakturoid.email,
-            api_key=config.fakturoid.api_key,
-            account_slug=config.fakturoid.account_slug,
-            base_url=config.fakturoid.base_url
-        )
+        self.ai_extractor = AIInvoiceExtractor(self.config)
+        self.fakturoid_client = FakturoidClient(self.config)
         
         # Setup logging
         self._setup_logging()
