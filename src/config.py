@@ -10,6 +10,9 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
+# Project root - computed once at module import time
+PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+
 
 class AIConfig(BaseModel):
     """AI model configuration."""
@@ -52,15 +55,14 @@ class ProcessingConfig(BaseModel):
 
 class DirectoriesConfig(BaseModel):
     """Directory configuration."""
-    project_root: Path = Field(default_factory=lambda: Path(__file__).parent.parent.resolve())
+    project_root: Path = Field(default_factory=lambda: PROJECT_ROOT)
     invoices: Path = Field(default=None)
     processed: Path = Field(default=None)
     
     @model_validator(mode='after')
     def resolve_paths(self):
         """Ensure all paths are absolute, relative to project root."""
-        # Get project root (where src/ directory is)
-        project_root = Path(__file__).parent.parent.resolve()
+        # Use module-level PROJECT_ROOT constant
         
         # Handle invoices path
         if self.invoices is None:
@@ -68,10 +70,10 @@ class DirectoriesConfig(BaseModel):
             if env_path:
                 self.invoices = Path(env_path).resolve()
             else:
-                self.invoices = (project_root / "data" / "invoices").resolve()
+                self.invoices = (PROJECT_ROOT / "data" / "invoices").resolve()
         elif not self.invoices.is_absolute():
             # If relative path from YAML, make it relative to project root
-            self.invoices = (project_root / self.invoices).resolve()
+            self.invoices = (PROJECT_ROOT / self.invoices).resolve()
         
         # Handle processed path
         if self.processed is None:
@@ -79,10 +81,10 @@ class DirectoriesConfig(BaseModel):
             if env_path:
                 self.processed = Path(env_path).resolve()
             else:
-                self.processed = (project_root / "data" / "processed").resolve()
+                self.processed = (PROJECT_ROOT / "data" / "processed").resolve()
         elif not self.processed.is_absolute():
             # If relative path from YAML, make it relative to project root
-            self.processed = (project_root / self.processed).resolve()
+            self.processed = (PROJECT_ROOT / self.processed).resolve()
         
         return self
 
