@@ -19,10 +19,22 @@ class InvoiceData(BaseModel):
     
     # Optional fields
     due_date: Optional[str] = Field(None, description="Payment due date (YYYY-MM-DD)")
+    taxable_fulfillment_due: Optional[str] = Field(None, description="Taxable fulfillment date / Date of chargeable event (YYYY-MM-DD)")
     variable_symbol: Optional[str] = Field(None, description="Variable symbol for payment")
-    supplier_address: Optional[str] = Field(None, description="Supplier address")
-    supplier_ico: Optional[str] = Field(None, description="Supplier IČO (company ID)")
-    supplier_dic: Optional[str] = Field(None, description="Supplier DIČ (tax ID)")
+    
+    # Supplier address fields (detailed for foreign companies)
+    supplier_address: Optional[str] = Field(None, description="Complete supplier address (fallback)")
+    supplier_street: Optional[str] = Field(None, description="Supplier street and number")
+    supplier_city: Optional[str] = Field(None, description="Supplier city")
+    supplier_zip: Optional[str] = Field(None, description="Supplier postal code")
+    supplier_country: Optional[str] = Field(None, description="Supplier country (ISO code or name)")
+    
+    # Supplier IDs
+    supplier_ico: Optional[str] = Field(None, description="Supplier IČO (Czech company ID)")
+    supplier_dic: Optional[str] = Field(None, description="Supplier DIČ/VAT (tax ID)")
+    supplier_vat_number: Optional[str] = Field(None, description="EU VAT number (for foreign companies)")
+    
+    # Other fields
     currency: Optional[str] = Field("CZK", description="Currency code")
     tax_amount: Optional[float] = Field(None, description="VAT/tax amount")
     line_items: Optional[list] = Field(None, description="List of invoice line items")
@@ -46,11 +58,23 @@ Required fields:
 
 Optional fields (if available):
 - due_date: Payment due date in YYYY-MM-DD format
-- variable_symbol: Variable symbol for payment
-- supplier_address: Complete supplier address
-- supplier_ico: IČO (company identification number)
-- supplier_dic: DIČ (tax identification number)
-- currency: Currency code (e.g., CZK, EUR, USD)
+- taxable_fulfillment_due: Date of taxable fulfillment / chargeable event (DUZP - Datum uskutečnění zdanitelného plnění) in YYYY-MM-DD format
+- variable_symbol: Variable symbol for payment (VS)
+
+Supplier address (extract separately if possible):
+- supplier_street: Street name and number
+- supplier_city: City name
+- supplier_zip: Postal/ZIP code
+- supplier_country: Country name or ISO code (e.g., CZ, DE, US)
+- supplier_address: Complete address as one string (if structured fields not available)
+
+Supplier identification numbers:
+- supplier_ico: IČO (Czech company registration number, 8 digits)
+- supplier_dic: DIČ (Czech tax ID, starts with CZ)
+- supplier_vat_number: EU VAT number (for foreign companies, e.g., DE123456789, GB999999999)
+
+Other fields:
+- currency: Currency code in ISO format (CZK, EUR, USD, GBP - NOT "Kc" or "Kč"!)
 - tax_amount: VAT/tax amount (as a number)
 - line_items: Array of items with description, quantity, unit_price, total
 - notes: Any additional notes or payment instructions
@@ -61,12 +85,21 @@ Return ONLY valid JSON in this exact format:
   "issue_date": "YYYY-MM-DD",
   "supplier_name": "...",
   "total_amount": 0.0,
-  "due_date": "YYYY-MM-DD",
-  "currency": "CZK",
+  "supplier_street": "123 Main St",
+  "supplier_city": "Prague",
+  "supplier_zip": "11000",
+  "supplier_country": "CZ",
+  "supplier_vat_number": "DE123456789",
+  "currency": "EUR",
   ...
 }
 
-If a field is not visible or unclear, omit it from the JSON. Be precise and only extract data that you can clearly see in the document."""
+Important:
+- For Czech companies: extract supplier_ico and supplier_dic
+- For foreign companies: extract supplier_vat_number
+- Always extract address components (street, city, zip, country) separately if visible
+- If a field is not visible or unclear, omit it from the JSON
+- Be precise and only extract data that you can clearly see in the document"""
     
     def __init__(self, config_or_api_key, model: str = "claude-3-5-sonnet-20241022"):
         """Initialize AI extractor.

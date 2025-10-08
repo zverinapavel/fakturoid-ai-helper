@@ -6,6 +6,7 @@ from typing import Dict, Any, Optional, List, Tuple
 from datetime import datetime, timedelta
 from pydantic import BaseModel
 from .ai_extractor import InvoiceData
+import re
 
 
 class FakturoidExpense(BaseModel):
@@ -216,6 +217,96 @@ class FakturoidClient:
                 return subject
         return None
     
+    def find_subject_by_ico(self, ico: str) -> Optional[Dict[str, Any]]:
+        """Find subject by IČO (company registration number).
+        
+        Args:
+            ico: IČO (company ID)
+            
+        Returns:
+            Subject dictionary or None if not found
+        """
+        if not ico:
+            return None
+        
+        # Clean IČO (remove spaces, dashes)
+        ico_clean = re.sub(r'[^\d]', '', str(ico))
+        
+        subjects = self.list_subjects()
+        for subject in subjects:
+            subject_ico = subject.get('registration_no')
+            if subject_ico:  # Only process if not None
+                subject_ico_clean = re.sub(r'[^\d]', '', str(subject_ico))
+                if subject_ico_clean == ico_clean:
+                    return subject
+        return None
+    
+    def get_company_from_ares(self, ico: str) -> Optional[Dict[str, Any]]:
+        """Get company information from ARES (Czech business register).
+        
+        Args:
+            ico: IČO (company registration number)
+            
+        Returns:
+            Dictionary with company data or None if not found
+        """
+        if not ico:
+            return None
+        
+        # Clean IČO
+        ico_clean = re.sub(r'[^\d]', '', str(ico))
+        
+        try:
+            # ARES API endpoint
+            url = f"https://ares.gov.cz/ekonomicke-subjekty-v-be/rest/ekonomicke-subjekty/{ico_clean}"
+            
+            response = requests.get(url, timeout=10)
+            if response.status_code != 200:
+                return None
+            
+            data = response.json()
+            
+            # Extract company information
+            company_name = data.get('obchodniJmeno', '')
+            
+            # Get address
+            sidlo = data.get('sidlo', {})
+            address_parts = []
+            
+            # Street and number
+            ulice = sidlo.get('nazevUlice', '')
+            cislo_domovni = sidlo.get('cisloDomovni', '')
+            cislo_orientacni = sidlo.get('cisloOrientacni', '')
+            
+            if ulice:
+                street = ulice
+                if cislo_domovni:
+                    street += f" {cislo_domovni}"
+                if cislo_orientacni:
+                    street += f"/{cislo_orientacni}"
+                address_parts.append(street)
+            
+            # City and ZIP
+            obec = sidlo.get('nazevObce', '')
+            psc = sidlo.get('psc', '')
+            
+            # Get DIC (VAT number)
+            dic = data.get('dic', '')
+            
+            return {
+                'name': company_name,
+                'street': address_parts[0] if address_parts else '',
+                'city': obec,
+                'zip': str(psc) if psc else '',
+                'country': 'CZ',
+                'registration_no': ico_clean,
+                'vat_no': dic
+            }
+            
+        except Exception as e:
+            print(f"Warning: Failed to fetch data from ARES for IČO {ico}: {e}")
+            return None
+    
     def create_subject(self, subject_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new subject.
         
@@ -274,7 +365,23 @@ class FakturoidClient:
         """
         self._ensure_token_valid()
         url = self._get_url("expenses.json")
+        
+        # Debug: print what we're sending
+        print(f"\n🔍 DEBUG - Sending to Fakturoid API:")
+        import json
+        print(json.dumps(invoice_data, indent=2, ensure_ascii=False))
+        
         response = self.session.post(url, json=invoice_data)
+        
+        # If error, print response details
+        if response.status_code != 201:
+            print(f"\n❌ API Error Response:")
+            print(f"Status: {response.status_code}")
+            try:
+                print(json.dumps(response.json(), indent=2, ensure_ascii=False))
+            except:
+                print(response.text)
+        
         response.raise_for_status()
         return response.json()
     
@@ -283,33 +390,86 @@ class FakturoidClient:
         supplier_name: str,
         supplier_ico: Optional[str] = None,
         supplier_dic: Optional[str] = None,
-        supplier_address: Optional[str] = None
+        supplier_vat_number: Optional[str] = None,
+        supplier_address: Optional[str] = None,
+        supplier_street: Optional[str] = None,
+        supplier_city: Optional[str] = None,
+        supplier_zip: Optional[str] = None,
+        supplier_country: Optional[str] = None
     ) -> Dict[str, Any]:
         """Get existing subject or create new one.
         
+        For Czech companies (with IČO), tries to fetch complete data from ARES.
+        For foreign companies, uses detailed address fields.
+        
         Args:
             supplier_name: Supplier company name
-            supplier_ico: IČO (company ID)
-            supplier_dic: DIČ (tax ID)
-            supplier_address: Address
+            supplier_ico: IČO (Czech company ID)
+            supplier_dic: DIČ (Czech tax ID)
+            supplier_vat_number: EU VAT number (for foreign companies)
+            supplier_address: Complete address (fallback if structured fields not available)
+            supplier_street: Street and number
+            supplier_city: City
+            supplier_zip: Postal code
+            supplier_country: Country code (e.g., CZ, DE, US)
             
         Returns:
             Subject dictionary with 'id'
         """
-        # Try to find existing subject by name
+        # Try to find existing subject by IČO first (more reliable)
+        if supplier_ico:
+            subject = self.find_subject_by_ico(supplier_ico)
+            if subject:
+                print(f"✓ Found existing subject by IČO: {subject.get('name')}")
+                return subject
+        
+        # Try to find by name
         subject = self.find_subject_by_name(supplier_name)
         if subject:
+            print(f"✓ Found existing subject by name: {subject.get('name')}")
             return subject
         
-        # Create new subject
-        subject_data = FakturoidSubject(
-            name=supplier_name,
-            registration_no=supplier_ico,
-            vat_no=supplier_dic,
-            street=supplier_address
-        )
+        # Subject not found - create new one
+        print(f"⚙ Creating new subject: {supplier_name}")
         
-        return self.create_subject(subject_data.model_dump(exclude_none=True))
+        # For Czech companies, try to get data from ARES
+        subject_data_dict = None
+        if supplier_ico:
+            print(f"  → Fetching data from ARES for IČO: {supplier_ico}")
+            ares_data = self.get_company_from_ares(supplier_ico)
+            if ares_data:
+                print(f"  ✓ Got data from ARES: {ares_data['name']}")
+                subject_data_dict = ares_data
+            else:
+                print(f"  ⚠ ARES lookup failed, using extracted data")
+        
+        # If ARES failed or no IČO, use extracted data
+        if not subject_data_dict:
+            # Determine VAT number (prefer supplier_vat_number for foreign, supplier_dic for Czech)
+            vat_no = supplier_vat_number or supplier_dic
+            
+            # Use structured address if available, otherwise fallback to supplier_address
+            street = supplier_street or supplier_address
+            
+            # Determine country (default to CZ if not specified and has IČO)
+            country = supplier_country
+            if not country:
+                country = "CZ" if supplier_ico else None
+            
+            subject_data = FakturoidSubject(
+                name=supplier_name,
+                registration_no=supplier_ico,
+                vat_no=vat_no,
+                street=street,
+                city=supplier_city,
+                zip=supplier_zip,
+                country=country or "CZ"
+            )
+            subject_data_dict = subject_data.model_dump(exclude_none=True)
+        
+        created_subject = self.create_subject(subject_data_dict)
+        print(f"  ✓ Subject created with ID: {created_subject.get('id')}")
+        return created_subject
     
     def convert_extracted_to_expense(
         self,
@@ -333,7 +493,12 @@ class FakturoidClient:
                     supplier_name=invoice_data.supplier_name,
                     supplier_ico=invoice_data.supplier_ico,
                     supplier_dic=invoice_data.supplier_dic,
-                    supplier_address=invoice_data.supplier_address
+                    supplier_vat_number=invoice_data.supplier_vat_number,
+                    supplier_address=invoice_data.supplier_address,
+                    supplier_street=invoice_data.supplier_street,
+                    supplier_city=invoice_data.supplier_city,
+                    supplier_zip=invoice_data.supplier_zip,
+                    supplier_country=invoice_data.supplier_country
                 )
                 subject_id = subject['id']
             else:
@@ -346,26 +511,59 @@ class FakturoidClient:
         
         # Prepare line items
         lines = []
-        if invoice_data.line_items:
-            for item in invoice_data.line_items:
-                lines.append({
-                    'name': item.get('description', ''),
-                    'quantity': str(item.get('quantity', 1)),
-                    'unit_price': str(item.get('unit_price', 0)),
-                    'vat_rate': item.get('vat_rate', 21)  # Default Czech VAT
-                })
+        if invoice_data.line_items and len(invoice_data.line_items) > 0:
+            # Check if line items have valid prices
+            has_valid_prices = any(
+                item.get('unit_price') and float(item.get('unit_price', 0)) > 0 
+                for item in invoice_data.line_items
+            )
+            
+            if has_valid_prices:
+                # Use extracted line items
+                for item in invoice_data.line_items:
+                    lines.append({
+                        'name': item.get('description', ''),
+                        'quantity': str(item.get('quantity', 1)),
+                        'unit_price': str(item.get('unit_price', 0)),
+                        'vat_rate': item.get('vat_rate', 21)  # Default Czech VAT
+                    })
+            else:
+                # Line items exist but without prices - use total as fallback
+                lines = None
         else:
+            # No line items extracted
+            lines = None
+        
+        if not lines:
             # Create a single line item with total
             # Calculate price without VAT (assuming 21% VAT included)
             total = float(invoice_data.total_amount)
             price_without_vat = total / 1.21
             
-            lines.append({
+            lines = [{
                 'name': invoice_data.notes or f'Invoice {invoice_data.invoice_number}',
                 'quantity': '1.0',
                 'unit_price': str(round(price_without_vat, 2)),
                 'vat_rate': 21
-            })
+            }]
+        
+        # Normalize currency (handle common variations)
+        currency = invoice_data.currency or "CZK"
+        currency_map = {
+            'Kc': 'CZK',
+            'Kč': 'CZK',
+            'KC': 'CZK',
+            'kc': 'CZK',
+            'kč': 'CZK',
+            'czk': 'CZK'
+        }
+        normalized_currency = currency_map.get(currency, currency.upper() if currency else "CZK")
+        
+        # Determine taxable_fulfillment_due (DUZP)
+        # If not extracted from invoice, default to received_on date (same as issue_date)
+        taxable_fulfillment_due = invoice_data.taxable_fulfillment_due
+        if not taxable_fulfillment_due:
+            taxable_fulfillment_due = invoice_data.issue_date  # Default to issue date (same as received_on)
         
         fakturoid_expense = FakturoidExpense(
             subject_id=subject_id,
@@ -373,9 +571,10 @@ class FakturoidClient:
             original_number=invoice_data.invoice_number,
             variable_symbol=invoice_data.variable_symbol,
             issued_on=invoice_data.issue_date,
+            taxable_fulfillment_due=taxable_fulfillment_due,  # Date of chargeable event (DUZP)
             due_on=invoice_data.due_date,
             received_on=invoice_data.issue_date,  # Default to issue date
-            currency=invoice_data.currency or "CZK",
+            currency=normalized_currency,
             description=invoice_data.notes,
             document_type="invoice"
         )
