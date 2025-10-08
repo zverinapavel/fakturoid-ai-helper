@@ -321,7 +321,24 @@ class FakturoidClient:
         """
         self._ensure_token_valid()
         url = self._get_url("subjects.json")
+        
+        # Debug: print what we're sending
+        print(f"\n🔍 DEBUG - Creating subject:")
+        import json
+        print(json.dumps(subject_data, indent=2, ensure_ascii=False))
+        
         response = self.session.post(url, json=subject_data)
+        
+        # If error, print response details
+        if response.status_code != 201:
+            print(f"\n❌ API Error Response:")
+            print(f"Status: {response.status_code}")
+            try:
+                error_data = response.json()
+                print(json.dumps(error_data, indent=2, ensure_ascii=False))
+            except:
+                print(response.text)
+        
         response.raise_for_status()
         return response.json()
     
