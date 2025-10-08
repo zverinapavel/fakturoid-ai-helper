@@ -52,17 +52,28 @@ class ProcessingConfig(BaseModel):
 
 class DirectoriesConfig(BaseModel):
     """Directory configuration."""
-    project_root: Path = Path(__file__).parent.parent
-    invoices: Path = Field(
-        default_factory=lambda: Path(
-            os.getenv("INVOICES_DIR", str(Path(__file__).parent.parent / "data" / "invoices"))
-        ).resolve()  # Resolve to absolute path
-    )
-    processed: Path = Field(
-        default_factory=lambda: Path(
-            os.getenv("PROCESSED_DIR", str(Path(__file__).parent.parent / "data" / "processed"))
-        ).resolve()  # Resolve to absolute path
-    )
+    project_root: Path = Path(__file__).parent.parent.resolve()
+    invoices: Path = Field(default=None)
+    processed: Path = Field(default=None)
+    
+    def __init__(self, **data):
+        """Initialize with absolute paths."""
+        # Set defaults if not provided
+        if 'invoices' not in data or data['invoices'] is None:
+            env_path = os.getenv("INVOICES_DIR")
+            if env_path:
+                data['invoices'] = Path(env_path).resolve()
+            else:
+                data['invoices'] = (Path(__file__).parent.parent / "data" / "invoices").resolve()
+        
+        if 'processed' not in data or data['processed'] is None:
+            env_path = os.getenv("PROCESSED_DIR")
+            if env_path:
+                data['processed'] = Path(env_path).resolve()
+            else:
+                data['processed'] = (Path(__file__).parent.parent / "data" / "processed").resolve()
+        
+        super().__init__(**data)
 
 
 class ExtractionConfig(BaseModel):
