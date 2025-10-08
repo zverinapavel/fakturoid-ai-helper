@@ -6,10 +6,18 @@ from typing import List, Dict, Any, Optional
 import shutil
 from datetime import datetime
 
-from config import config
-from document_processor import DocumentProcessor
-from ai_extractor import AIInvoiceExtractor, InvoiceData
-from fakturoid_client import FakturoidClient
+try:
+    # Try package-style imports (when imported as 'from src.agent')
+    from src.config import config
+    from src.document_processor import DocumentProcessor
+    from src.ai_extractor import AIInvoiceExtractor, InvoiceData
+    from src.fakturoid_client import FakturoidClient
+except ImportError:
+    # Fall back to direct imports (when src/ is in sys.path)
+    from config import config
+    from document_processor import DocumentProcessor
+    from ai_extractor import AIInvoiceExtractor, InvoiceData
+    from fakturoid_client import FakturoidClient
 
 
 class InvoiceProcessingAgent:
