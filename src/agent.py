@@ -47,14 +47,14 @@ class InvoiceProcessingAgent:
         
     def _setup_logging(self):
         """Setup logging configuration."""
-        log_dir = config.logging.file.parent
+        log_dir = self.config.logging.file.parent
         log_dir.mkdir(parents=True, exist_ok=True)
         
         logging.basicConfig(
-            level=config.logging.level,
-            format=config.logging.format,
+            level=self.config.logging.level,
+            format=self.config.logging.format,
             handlers=[
-                logging.FileHandler(config.logging.file),
+                logging.FileHandler(self.config.logging.file),
                 logging.StreamHandler()
             ]
         )
