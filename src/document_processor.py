@@ -14,13 +14,16 @@ class DocumentProcessor:
     SUPPORTED_IMAGE_FORMATS = {'.jpg', '.jpeg', '.png', '.gif', '.webp'}
     SUPPORTED_PDF_FORMAT = {'.pdf'}
     
-    def __init__(self, invoices_dir: Path):
+    def __init__(self, invoices_dir):
         """Initialize document processor.
         
         Args:
-            invoices_dir: Directory containing invoice files
+            invoices_dir: Directory containing invoice files (str or Path)
         """
-        self.invoices_dir = Path(invoices_dir)
+        if isinstance(invoices_dir, Path):
+            self.invoices_dir = invoices_dir
+        else:
+            self.invoices_dir = Path(invoices_dir)
         
     def list_invoice_files(self) -> List[Path]:
         """List all supported invoice files in the directory.
