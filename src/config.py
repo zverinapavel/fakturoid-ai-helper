@@ -41,16 +41,28 @@ class FakturoidConfig(BaseModel):
 
 class ProcessingConfig(BaseModel):
     """Processing configuration."""
-    mode: str = "manual"  # auto, manual, both
-    auto_submit: bool = False
+    mode: str = Field(
+        default_factory=lambda: os.getenv("PROCESSING_MODE", "manual")
+    )
+    auto_submit: bool = Field(
+        default_factory=lambda: os.getenv("AUTO_SUBMIT", "false").lower() == "true"
+    )
     batch_size: int = 10
 
 
 class DirectoriesConfig(BaseModel):
     """Directory configuration."""
     project_root: Path = Path(__file__).parent.parent
-    invoices: Path = Field(default_factory=lambda: Path(__file__).parent.parent / "data" / "invoices")
-    processed: Path = Field(default_factory=lambda: Path(__file__).parent.parent / "data" / "processed")
+    invoices: Path = Field(
+        default_factory=lambda: Path(
+            os.getenv("INVOICES_DIR", str(Path(__file__).parent.parent / "data" / "invoices"))
+        )
+    )
+    processed: Path = Field(
+        default_factory=lambda: Path(
+            os.getenv("PROCESSED_DIR", str(Path(__file__).parent.parent / "data" / "processed"))
+        )
+    )
 
 
 class ExtractionConfig(BaseModel):
@@ -75,7 +87,9 @@ class ExtractionConfig(BaseModel):
 
 class LoggingConfig(BaseModel):
     """Logging configuration."""
-    level: str = "INFO"
+    level: str = Field(
+        default_factory=lambda: os.getenv("LOG_LEVEL", "INFO")
+    )
     format: str = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     file: Path = Path("logs/processor.log")
 
