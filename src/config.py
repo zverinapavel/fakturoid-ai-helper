@@ -53,22 +53,37 @@ class ProcessingConfig(BaseModel):
 class DirectoriesConfig(BaseModel):
     """Directory configuration."""
     project_root: Path = Field(default_factory=lambda: Path(__file__).parent.parent.resolve())
-    invoices: Path = Field(
-        default_factory=lambda: Path(
-            os.getenv("INVOICES_DIR", str(Path(__file__).parent.parent / "data" / "invoices"))
-        )
-    )
-    processed: Path = Field(
-        default_factory=lambda: Path(
-            os.getenv("PROCESSED_DIR", str(Path(__file__).parent.parent / "data" / "processed"))
-        )
-    )
+    invoices: Path = Field(default=None)
+    processed: Path = Field(default=None)
     
     @model_validator(mode='after')
     def resolve_paths(self):
-        """Ensure all paths are absolute."""
-        self.invoices = self.invoices.resolve()
-        self.processed = self.processed.resolve()
+        """Ensure all paths are absolute, relative to project root."""
+        # Get project root (where src/ directory is)
+        project_root = Path(__file__).parent.parent.resolve()
+        
+        # Handle invoices path
+        if self.invoices is None:
+            env_path = os.getenv("INVOICES_DIR")
+            if env_path:
+                self.invoices = Path(env_path).resolve()
+            else:
+                self.invoices = (project_root / "data" / "invoices").resolve()
+        elif not self.invoices.is_absolute():
+            # If relative path from YAML, make it relative to project root
+            self.invoices = (project_root / self.invoices).resolve()
+        
+        # Handle processed path
+        if self.processed is None:
+            env_path = os.getenv("PROCESSED_DIR")
+            if env_path:
+                self.processed = Path(env_path).resolve()
+            else:
+                self.processed = (project_root / "data" / "processed").resolve()
+        elif not self.processed.is_absolute():
+            # If relative path from YAML, make it relative to project root
+            self.processed = (project_root / self.processed).resolve()
+        
         return self
 
 
