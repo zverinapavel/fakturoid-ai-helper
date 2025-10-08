@@ -206,7 +206,7 @@ class FakturoidClient:
         return response.json()
     
     def find_subject_by_name(self, name: str) -> Optional[Dict[str, Any]]:
-        """Find subject by name.
+        """Find subject by name (case-insensitive, partial match).
         
         Args:
             name: Subject name to search for
@@ -215,9 +215,43 @@ class FakturoidClient:
             Subject dictionary or None if not found
         """
         subjects = self.list_subjects()
+        name_lower = name.lower()
+        
+        # First try exact match
         for subject in subjects:
-            if subject.get('name', '').lower() == name.lower():
+            if subject.get('name', '').lower() == name_lower:
                 return subject
+        
+        # Then try partial match (for cases like "Google Cloud" vs "Google Cloud EMEA Limited")
+        for subject in subjects:
+            subject_name = subject.get('name', '').lower()
+            if name_lower in subject_name or subject_name in name_lower:
+                return subject
+        
+        return None
+    
+    def find_subject_by_vat(self, vat_no: str) -> Optional[Dict[str, Any]]:
+        """Find subject by VAT number.
+        
+        Args:
+            vat_no: VAT number
+            
+        Returns:
+            Subject dictionary or None if not found
+        """
+        if not vat_no:
+            return None
+        
+        # Clean VAT number (remove spaces, dashes)
+        vat_clean = re.sub(r'[\s\-]', '', str(vat_no)).upper()
+        
+        subjects = self.list_subjects()
+        for subject in subjects:
+            subject_vat = subject.get('vat_no')
+            if subject_vat:
+                subject_vat_clean = re.sub(r'[\s\-]', '', str(subject_vat)).upper()
+                if subject_vat_clean == vat_clean:
+                    return subject
         return None
     
     def find_subject_by_ico(self, ico: str) -> Optional[Dict[str, Any]]:
@@ -436,11 +470,19 @@ class FakturoidClient:
         Returns:
             Subject dictionary with 'id'
         """
-        # Try to find existing subject by IČO first (more reliable)
+        # Try to find existing subject by IČO first (most reliable for Czech companies)
         if supplier_ico:
             subject = self.find_subject_by_ico(supplier_ico)
             if subject:
                 print(f"✓ Found existing subject by IČO: {subject.get('name')}")
+                return subject
+        
+        # Try to find by VAT number (for foreign companies)
+        if supplier_vat_number or supplier_dic:
+            vat = supplier_vat_number or supplier_dic
+            subject = self.find_subject_by_vat(vat)
+            if subject:
+                print(f"✓ Found existing subject by VAT: {subject.get('name')}")
                 return subject
         
         # Try to find by name
@@ -471,22 +513,53 @@ class FakturoidClient:
             # Use structured address if available, otherwise fallback to supplier_address
             street = supplier_street or supplier_address
             
-            # Determine country
-            country = supplier_country
-            if not country:
-                # Try to detect from VAT number prefix
-                if vat_no and len(vat_no) >= 2:
-                    vat_prefix = vat_no[:2].upper()
-                    # Common EU country codes
-                    if vat_prefix in ['DE', 'GB', 'FR', 'AT', 'SK', 'PL', 'NL', 'IT', 'ES', 'BE', 'IE', 'DK', 'SE', 'FI']:
-                        country = vat_prefix
-                    elif vat_prefix == 'CZ':
-                        country = "CZ"
-                # If has IČO, it's Czech
-                elif supplier_ico:
-                    country = "CZ"
-                # For foreign companies without clear country, don't default to CZ
-                # Leave as None and it won't be sent to API
+            # Determine country - normalize to ISO 2-letter code
+            country = None
+            if supplier_country:
+                # Map common country names to ISO codes
+                country_mapping = {
+                    'ireland': 'IE',
+                    'germany': 'DE',
+                    'united kingdom': 'GB',
+                    'uk': 'GB',
+                    'france': 'FR',
+                    'austria': 'AT',
+                    'slovakia': 'SK',
+                    'poland': 'PL',
+                    'netherlands': 'NL',
+                    'italy': 'IT',
+                    'spain': 'ES',
+                    'belgium': 'BE',
+                    'denmark': 'DK',
+                    'sweden': 'SE',
+                    'finland': 'FI',
+                    'czech republic': 'CZ',
+                    'czechia': 'CZ',
+                    'česko': 'CZ',
+                    'česká republika': 'CZ',
+                }
+                
+                country_lower = supplier_country.lower().strip()
+                country = country_mapping.get(country_lower, supplier_country.upper())
+                
+                # Validate it's 2-letter code
+                if len(country) > 2:
+                    # Try to extract 2-letter code
+                    country = None
+            
+            # If no country from extraction, try to detect from VAT number
+            if not country and vat_no and len(vat_no) >= 2:
+                vat_prefix = vat_no[:2].upper()
+                # Common EU country codes
+                if vat_prefix in ['DE', 'GB', 'FR', 'AT', 'SK', 'PL', 'NL', 'IT', 'ES', 'BE', 'IE', 'DK', 'SE', 'FI', 'CZ']:
+                    country = vat_prefix
+            
+            # If has IČO, it's Czech
+            if not country and supplier_ico:
+                country = "CZ"
+            
+            # For foreign companies without clear country, don't default to CZ
+            # Leave as None and it won't be sent to API
             
             # Build subject data - only include non-empty fields
             subject_data_dict = {
