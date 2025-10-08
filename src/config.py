@@ -11,7 +11,30 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Project root - computed once at module import time
+# This will be: /Users/pavelzverina/AiProjects/fakturoid
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
+
+
+def get_invoices_dir() -> Path:
+    """Get invoices directory as absolute path."""
+    env_path = os.getenv("INVOICES_DIR")
+    if env_path:
+        path = Path(env_path)
+        # If env path is absolute, use as-is; if relative, make relative to PROJECT_ROOT
+        return path if path.is_absolute() else (PROJECT_ROOT / path)
+    # Default: data/invoices relative to project root (already absolute since PROJECT_ROOT is absolute)
+    return PROJECT_ROOT / "data" / "invoices"
+
+
+def get_processed_dir() -> Path:
+    """Get processed directory as absolute path."""
+    env_path = os.getenv("PROCESSED_DIR")
+    if env_path:
+        path = Path(env_path)
+        # If env path is absolute, use as-is; if relative, make relative to PROJECT_ROOT
+        return path if path.is_absolute() else (PROJECT_ROOT / path)
+    # Default: data/processed relative to project root (already absolute since PROJECT_ROOT is absolute)
+    return PROJECT_ROOT / "data" / "processed"
 
 
 class AIConfig(BaseModel):
@@ -56,37 +79,8 @@ class ProcessingConfig(BaseModel):
 class DirectoriesConfig(BaseModel):
     """Directory configuration."""
     project_root: Path = Field(default_factory=lambda: PROJECT_ROOT)
-    invoices: Path = Field(default=None)
-    processed: Path = Field(default=None)
-    
-    @model_validator(mode='after')
-    def resolve_paths(self):
-        """Ensure all paths are absolute, relative to project root."""
-        # Use module-level PROJECT_ROOT constant
-        
-        # Handle invoices path
-        if self.invoices is None:
-            env_path = os.getenv("INVOICES_DIR")
-            if env_path:
-                self.invoices = Path(env_path).resolve()
-            else:
-                self.invoices = (PROJECT_ROOT / "data" / "invoices").resolve()
-        elif not self.invoices.is_absolute():
-            # If relative path from YAML, make it relative to project root
-            self.invoices = (PROJECT_ROOT / self.invoices).resolve()
-        
-        # Handle processed path
-        if self.processed is None:
-            env_path = os.getenv("PROCESSED_DIR")
-            if env_path:
-                self.processed = Path(env_path).resolve()
-            else:
-                self.processed = (PROJECT_ROOT / "data" / "processed").resolve()
-        elif not self.processed.is_absolute():
-            # If relative path from YAML, make it relative to project root
-            self.processed = (PROJECT_ROOT / self.processed).resolve()
-        
-        return self
+    invoices: Path = Field(default_factory=get_invoices_dir)
+    processed: Path = Field(default_factory=get_processed_dir)
 
 
 class ExtractionConfig(BaseModel):
