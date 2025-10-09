@@ -1,0 +1,39 @@
+# iÚčto Migration Configuration
+
+# iÚčto API settings
+iucto:
+  base_url: "https://app.iucto.cz/api"
+  timeout: 30
+
+# Migration settings
+migration:
+  # Years to migrate
+  start_year: 2013
+  end_year: 2021
+  
+  # Document types
+  transfer_issued: true      # Vystavené faktury
+  transfer_received: true    # Přijaté faktury
+  
+  # Payment handling
+  auto_mark_paid: true
+  payment_date_strategy: "due_date"  # Options: due_date, paid_date, issue_date
+  
+  # Duplicate handling
+  skip_duplicates: true
+  duplicate_detection:
+    - number
+    - variable_symbol
+    - amount_and_date
+  
+  # Batch processing
+  batch_size: 50
+  delay_between_batches: 2  # seconds (for rate limiting)
+  
+  # Logging
+  log_file: "logs/migration.log"
+  report_file: "logs/migration_report.json"
+  
+  # Safety limits
+  max_invoices_per_run: 1000  # Safety limit to prevent accidents
+
