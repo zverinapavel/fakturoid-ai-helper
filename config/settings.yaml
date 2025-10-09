@@ -8,8 +8,10 @@ processing:
   
 # Directories
 directories:
-  invoices: "data/invoices"
-  processed: "data/processed"
+  invoices: "/Users/pavelzverina/Documents/!MojeDokumenty/Ucetnictvi/BF faktury prijate/to_fakturoid"
+  processed: "/Users/pavelzverina/Documents/!MojeDokumenty/Ucetnictvi/BF faktury prijate/processed"
+  # invoices: "data/invoices"
+  # processed: "data/processed"
   
 # AI Model Configuration
 ai:
