@@ -1,0 +1,368 @@
+# Configuration Priority
+
+Jak funguje priorita konfigurace v projektu Fakturoid Invoice Processor.
+
+## 🎯 Pravidlo priority
+
+Systém načítá konfiguraci v tomto pořadí (od nejvyšší k nejnižší prioritě):
+
+```
+1. Environment Variables (.env)    ← Nejvyšší priorita
+2. YAML Configuration (settings.yaml)
+3. Hard-coded Defaults              ← Nejnižší priorita
+```
+
+**Pravidlo:** První nalezená hodnota se použije.
+
+---
+
+## 📁 Directories (invoices, processed)
+
+### Priorita:
+
+1. **Environment variable** (`INVOICES_DIR`, `PROCESSED_DIR`)
+2. **YAML config** (`directories.invoices`, `directories.processed`)
+3. **Default** (`data/invoices`, `data/processed`)
+
+### Příklad:
+
+**Scenario 1: Jen defaults**
+```bash
+# Žádný .env, žádný YAML nebo prázdné hodnoty
+```
+→ Použije se: `/path/to/project/data/invoices`
+
+**Scenario 2: YAML nastavení**
+```yaml
+# config/settings.yaml
+directories:
+  invoices: "my/custom/invoices"
+  processed: "my/custom/processed"
+```
+→ Použije se: `/path/to/project/my/custom/invoices`
+
+**Scenario 3: .env nastavení**
+```bash
+# .env
+INVOICES_DIR=/absolute/path/to/invoices
+PROCESSED_DIR=/absolute/path/to/processed
+```
+→ Použije se: `/absolute/path/to/invoices` (ignoruje YAML)
+
+**Scenario 4: .env + YAML (oboje)**
+```bash
+# .env
+INVOICES_DIR=/env/path
+
+# settings.yaml
+directories:
+  invoices: "yaml/path"
+```
+→ Použije se: `/env/path` (.env má přednost)
+
+---
+
+## 🤖 AI Configuration
+
+### Provider a Model:
+
+1. **Environment variables** (`AI_PROVIDER`, `AI_MODEL`)
+2. **YAML config** (`ai.provider`, `ai.model`)
+3. **Defaults** (`anthropic`, `claude-3-5-sonnet-20241022`)
+
+### API Keys:
+
+**Vždy z environment variables:**
+- `ANTHROPIC_API_KEY`
+- `OPENAI_API_KEY`
+- `DEEPSEEK_API_KEY`
+- `GROQ_API_KEY`
+
+API klíče **se nikdy neukládají** do YAML (bezpečnost!).
+
+### Příklad:
+
+```yaml
+# settings.yaml
+ai:
+  provider: "anthropic"
+  model: "claude-3-5-sonnet-20241022"
+```
+
+```bash
+# .env
+AI_PROVIDER=deepseek        # ← Přepíše YAML
+AI_MODEL=deepseek-chat      # ← Přepíše YAML
+DEEPSEEK_API_KEY=sk-...
+```
+
+→ Použije se: DeepSeek (z .env, ignoruje YAML)
+
+---
+
+## ⚙️ Processing Configuration
+
+### Mode a Auto-submit:
+
+1. **Environment variables** (`PROCESSING_MODE`, `AUTO_SUBMIT`)
+2. **YAML config** (`processing.mode`, `processing.auto_submit`)
+3. **Defaults** (`manual`, `false`)
+
+### Příklad:
+
+```yaml
+# settings.yaml
+processing:
+  mode: "manual"
+  auto_submit: false
+```
+
+```bash
+# .env
+PROCESSING_MODE=auto     # ← Přepíše YAML
+AUTO_SUBMIT=true         # ← Přepíše YAML
+```
+
+→ Použije se: auto mode s auto-submit (z .env)
+
+---
+
+## 📝 Logging
+
+### Log Level:
+
+1. **Environment variable** (`LOG_LEVEL`)
+2. **YAML config** (`logging.level`)
+3. **Default** (`INFO`)
+
+### Příklad:
+
+```yaml
+# settings.yaml
+logging:
+  level: "INFO"
+```
+
+```bash
+# .env
+LOG_LEVEL=DEBUG    # ← Přepíše YAML
+```
+
+→ Použije se: DEBUG level
+
+---
+
+## 🔐 Fakturoid Credentials
+
+### API Credentials:
+
+**Vždy z environment variables:**
+- `FAKTUROID_CLIENT_ID` (nebo `FAKTUROID_EMAIL`)
+- `FAKTUROID_CLIENT_SECRET` (nebo `FAKTUROID_API_KEY`)
+- `FAKTUROID_ACCOUNT_SLUG`
+
+Credentials **se nikdy neukládají** do YAML!
+
+### API endpoint:
+
+```yaml
+# settings.yaml
+fakturoid:
+  base_url: "https://app.fakturoid.cz/api/v3"
+  timeout: 30
+```
+
+URL a timeout lze nastavit v YAML.
+
+---
+
+## 📊 Complete Priority Table
+
+| Konfigurace | .env | YAML | Default | Notes |
+|-------------|------|------|---------|-------|
+| **Directories** | | | | |
+| invoices | `INVOICES_DIR` | `directories.invoices` | `data/invoices` | Převede se na absolutní |
+| processed | `PROCESSED_DIR` | `directories.processed` | `data/processed` | Převede se na absolutní |
+| **AI** | | | | |
+| provider | `AI_PROVIDER` | `ai.provider` | `anthropic` | |
+| model | `AI_MODEL` | `ai.model` | `claude-3.5-sonnet...` | |
+| **API Keys** | | | | |
+| Anthropic | `ANTHROPIC_API_KEY` | - | - | Required for Anthropic |
+| OpenAI | `OPENAI_API_KEY` | - | - | Required for OpenAI |
+| DeepSeek | `DEEPSEEK_API_KEY` | - | - | Required for DeepSeek |
+| Groq | `GROQ_API_KEY` | - | - | Required for Groq |
+| Ollama URL | `OLLAMA_BASE_URL` | `ai.ollama_base_url` | `http://localhost:11434` | |
+| **Processing** | | | | |
+| mode | `PROCESSING_MODE` | `processing.mode` | `manual` | |
+| auto_submit | `AUTO_SUBMIT` | `processing.auto_submit` | `false` | |
+| **Fakturoid** | | | | |
+| client_id | `FAKTUROID_CLIENT_ID` | - | - | Required |
+| client_secret | `FAKTUROID_CLIENT_SECRET` | - | - | Required |
+| account_slug | `FAKTUROID_ACCOUNT_SLUG` | - | - | Required |
+| **Logging** | | | | |
+| level | `LOG_LEVEL` | `logging.level` | `INFO` | |
+
+---
+
+## 💡 Best Practices
+
+### Development Setup
+
+**Use `.env` for secrets:**
+```bash
+# .env
+ANTHROPIC_API_KEY=sk-ant-dev...
+FAKTUROID_CLIENT_ID=dev_id
+FAKTUROID_CLIENT_SECRET=dev_secret
+FAKTUROID_ACCOUNT_SLUG=dev-account
+```
+
+**Use YAML for preferences:**
+```yaml
+# settings.yaml
+ai:
+  provider: "anthropic"
+  model: "claude-3-haiku-20240307"  # Cheaper for dev
+
+processing:
+  mode: "manual"
+  
+logging:
+  level: "DEBUG"  # Verbose logging for dev
+```
+
+### Production Setup
+
+**Use `.env` for all critical settings:**
+```bash
+# .env
+ANTHROPIC_API_KEY=sk-ant-prod...
+FAKTUROID_CLIENT_ID=prod_id
+FAKTUROID_CLIENT_SECRET=prod_secret
+FAKTUROID_ACCOUNT_SLUG=prod-account
+
+# Override YAML settings
+AI_PROVIDER=anthropic
+AI_MODEL=claude-3-5-sonnet-20241022
+PROCESSING_MODE=auto
+AUTO_SUBMIT=true
+INVOICES_DIR=/production/invoices
+PROCESSED_DIR=/production/processed
+LOG_LEVEL=INFO
+```
+
+**Keep YAML minimal:**
+```yaml
+# settings.yaml - just structure, no sensitive data
+processing:
+  batch_size: 10
+
+extraction:
+  required_fields:
+    - invoice_number
+    - issue_date
+    - supplier_name
+    - total_amount
+```
+
+---
+
+## 🧪 Testing Configuration
+
+```python
+from src.config import config
+import json
+
+# Display all configuration
+print(json.dumps(config.model_dump(), indent=2, default=str))
+
+# Check specific values
+print(f"\nInvoices: {config.directories.invoices}")
+print(f"Provider: {config.ai.provider}")
+print(f"Model: {config.ai.model}")
+print(f"Mode: {config.processing.mode}")
+```
+
+---
+
+## 🔄 Changing Configuration
+
+### Temporary Override (Runtime)
+
+```python
+from src.config import config
+
+# Override for this session
+config.ai.provider = "openai"
+config.ai.model = "gpt-4o-mini"
+
+# Use modified config
+agent = InvoiceProcessingAgent(config)
+```
+
+### Permanent Change
+
+**Option 1: Edit .env** (doporučeno)
+```bash
+nano .env
+# Změňte AI_PROVIDER=deepseek
+```
+
+**Option 2: Edit YAML**
+```bash
+nano config/settings.yaml
+# Změňte ai.provider: "deepseek"
+```
+
+**Option 3: Environment variable** (dočasné)
+```bash
+AI_PROVIDER=groq python process_invoices.py --extract-only
+```
+
+---
+
+## 🆘 Troubleshooting
+
+### "Config value not used"
+
+**Příčina:** .env má přednost před YAML
+
+**Řešení:** Zkontrolujte .env:
+```bash
+cat .env | grep INVOICES_DIR
+# Pokud je nastaveno, přepíše YAML
+```
+
+### "Path not found"
+
+**Příčina:** Relativní cesta v YAML je relativní k PROJECT_ROOT
+
+**Řešení:**
+```yaml
+# Špatně (od cwd):
+directories:
+  invoices: "../other_project/invoices"
+
+# Správně (od project root):
+directories:
+  invoices: "data/invoices"
+
+# Nebo absolutně:
+directories:
+  invoices: "/absolute/path/invoices"
+```
+
+### "API key not found"
+
+**Příčina:** API klíče nejdou z YAML, jen z .env
+
+**Řešení:** Přidejte do .env:
+```bash
+echo "ANTHROPIC_API_KEY=sk-ant-..." >> .env
+```
+
+---
+
+**Last Updated:** 2025-10-08  
+**Version:** 0.1.0
+
