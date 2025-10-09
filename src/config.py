@@ -39,10 +39,19 @@ def get_processed_dir() -> Path:
 
 class AIConfig(BaseModel):
     """AI model configuration."""
-    provider: str = "anthropic"
-    model: str = "claude-3-5-sonnet-20241022"
+    provider: str = Field(
+        default_factory=lambda: os.getenv("AI_PROVIDER", "anthropic")
+    )
+    model: str = Field(
+        default_factory=lambda: os.getenv("AI_MODEL", "claude-3-5-sonnet-20241022")
+    )
     temperature: float = 0.0
     max_tokens: int = 4096
+    
+    # Provider-specific settings
+    ollama_base_url: str = Field(
+        default_factory=lambda: os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    )
 
 
 class FakturoidConfig(BaseModel):
@@ -141,6 +150,47 @@ class Config(BaseModel):
         if not key:
             raise ValueError("ANTHROPIC_API_KEY not set in environment")
         return key
+    
+    @property
+    def openai_api_key(self) -> str:
+        """Get OpenAI API key from environment."""
+        key = os.getenv("OPENAI_API_KEY", "")
+        if not key:
+            raise ValueError("OPENAI_API_KEY not set in environment")
+        return key
+    
+    @property
+    def deepseek_api_key(self) -> str:
+        """Get DeepSeek API key from environment."""
+        key = os.getenv("DEEPSEEK_API_KEY", "")
+        if not key:
+            raise ValueError("DEEPSEEK_API_KEY not set in environment")
+        return key
+    
+    @property
+    def groq_api_key(self) -> str:
+        """Get Groq API key from environment."""
+        key = os.getenv("GROQ_API_KEY", "")
+        if not key:
+            raise ValueError("GROQ_API_KEY not set in environment")
+        return key
+    
+    def get_api_key(self, provider: str = None) -> str:
+        """Get API key for the configured or specified provider."""
+        provider = provider or self.ai.provider
+        
+        if provider == "anthropic":
+            return self.anthropic_api_key
+        elif provider == "openai":
+            return self.openai_api_key
+        elif provider == "deepseek":
+            return self.deepseek_api_key
+        elif provider == "groq":
+            return self.groq_api_key
+        elif provider == "ollama":
+            return ""  # Ollama doesn't require API key for local
+        else:
+            raise ValueError(f"Unknown provider: {provider}")
 
 
 # Global configuration instance

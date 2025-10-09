@@ -3,9 +3,24 @@
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional
-from anthropic import Anthropic
 from pydantic import BaseModel, Field
 from datetime import date
+
+# Import AI libraries with fallbacks
+try:
+    from anthropic import Anthropic
+except ImportError:
+    Anthropic = None
+
+try:
+    from openai import OpenAI
+except ImportError:
+    OpenAI = None
+
+try:
+    import requests  # For DeepSeek, Groq, and Ollama
+except ImportError:
+    requests = None
 
 
 class InvoiceData(BaseModel):
@@ -47,6 +62,15 @@ class InvoiceData(BaseModel):
 
 class AIInvoiceExtractor:
     """Extract invoice data using AI vision models."""
+    
+    # Supported providers and their default models
+    PROVIDER_MODELS = {
+        'anthropic': 'claude-3-5-sonnet-20241022',
+        'openai': 'gpt-4o',
+        'deepseek': 'deepseek-chat',
+        'groq': 'llama-3.2-90b-vision-preview',
+        'ollama': 'llama3.2-vision'
+    }
     
     EXTRACTION_PROMPT = """Analyze this invoice document and extract the following information in JSON format:
 
@@ -101,22 +125,76 @@ Important:
 - If a field is not visible or unclear, omit it from the JSON
 - Be precise and only extract data that you can clearly see in the document"""
     
-    def __init__(self, config_or_api_key, model: str = "claude-3-5-sonnet-20241022"):
+    def __init__(self, config_or_api_key, model: str = "claude-3-5-sonnet-20241022", provider: str = "anthropic"):
         """Initialize AI extractor.
         
         Args:
             config_or_api_key: Either a Config object or an API key string
             model: Model to use for extraction (ignored if config is provided)
+            provider: AI provider to use (ignored if config is provided)
         """
         # Support both config object and direct API key
-        if hasattr(config_or_api_key, 'anthropic_api_key'):
+        if hasattr(config_or_api_key, 'ai'):
             # It's a config object
-            self.client = Anthropic(api_key=config_or_api_key.anthropic_api_key)
+            self.config = config_or_api_key
+            self.provider = config_or_api_key.ai.provider
             self.model = config_or_api_key.ai.model
+            self.temperature = config_or_api_key.ai.temperature
+            self.max_tokens = config_or_api_key.ai.max_tokens
+            self.api_key = config_or_api_key.get_api_key(self.provider)
         else:
             # It's an API key string
-            self.client = Anthropic(api_key=config_or_api_key)
+            self.config = None
+            self.provider = provider
             self.model = model
+            self.temperature = 0.0
+            self.max_tokens = 4096
+            self.api_key = config_or_api_key
+        
+        # Initialize the appropriate client
+        self._init_client()
+    
+    def _init_client(self):
+        """Initialize the AI client based on provider."""
+        if self.provider == "anthropic":
+            if Anthropic is None:
+                raise ImportError("anthropic library not installed. Install with: pip install anthropic")
+            self.client = Anthropic(api_key=self.api_key)
+            
+        elif self.provider == "openai":
+            if OpenAI is None:
+                raise ImportError("openai library not installed. Install with: pip install openai")
+            self.client = OpenAI(api_key=self.api_key)
+            
+        elif self.provider == "deepseek":
+            if OpenAI is None:
+                raise ImportError("openai library not installed. Install with: pip install openai")
+            # DeepSeek uses OpenAI-compatible API
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.deepseek.com"
+            )
+            
+        elif self.provider == "groq":
+            if OpenAI is None:
+                raise ImportError("openai library not installed. Install with: pip install openai")
+            # Groq uses OpenAI-compatible API
+            self.client = OpenAI(
+                api_key=self.api_key,
+                base_url="https://api.groq.com/openai/v1"
+            )
+            
+        elif self.provider == "ollama":
+            if OpenAI is None:
+                raise ImportError("openai library not installed. Install with: pip install openai")
+            # Ollama uses OpenAI-compatible API
+            base_url = self.config.ai.ollama_base_url if self.config else "http://localhost:11434"
+            self.client = OpenAI(
+                api_key="ollama",  # Ollama doesn't need real API key
+                base_url=f"{base_url}/v1"
+            )
+        else:
+            raise ValueError(f"Unsupported provider: {self.provider}")
     
     def extract_from_image(
         self, 
@@ -134,10 +212,30 @@ Important:
         Returns:
             Extracted invoice data
         """
+        if self.provider == "anthropic":
+            response_text = self._extract_anthropic_image(image_base64, media_type)
+        elif self.provider in ["openai", "deepseek", "groq", "ollama"]:
+            response_text = self._extract_openai_compatible_image(image_base64, media_type)
+        else:
+            raise ValueError(f"Provider {self.provider} doesn't support image extraction")
+        
+        # Extract JSON from response
+        json_data = self._extract_json_from_text(response_text)
+        
+        # Add metadata
+        json_data['source_file'] = source_file
+        json_data['ai_provider'] = self.provider
+        json_data['ai_model'] = self.model
+        
+        # Parse and validate with Pydantic
+        return InvoiceData(**json_data)
+    
+    def _extract_anthropic_image(self, image_base64: str, media_type: str) -> str:
+        """Extract using Anthropic Claude."""
         message = self.client.messages.create(
             model=self.model,
-            max_tokens=4096,
-            temperature=0.0,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
             messages=[
                 {
                     "role": "user",
@@ -158,16 +256,33 @@ Important:
                 }
             ],
         )
-        
-        # Extract JSON from response
-        response_text = message.content[0].text
-        json_data = self._extract_json_from_text(response_text)
-        
-        # Add metadata
-        json_data['source_file'] = source_file
-        
-        # Parse and validate with Pydantic
-        return InvoiceData(**json_data)
+        return message.content[0].text
+    
+    def _extract_openai_compatible_image(self, image_base64: str, media_type: str) -> str:
+        """Extract using OpenAI-compatible API (OpenAI, DeepSeek, Groq, Ollama)."""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:{media_type};base64,{image_base64}"
+                            }
+                        },
+                        {
+                            "type": "text",
+                            "text": self.EXTRACTION_PROMPT
+                        }
+                    ]
+                }
+            ]
+        )
+        return response.choices[0].message.content
     
     def extract_from_pdf(
         self,
@@ -183,11 +298,35 @@ Important:
         Returns:
             Extracted invoice data
         """
-        # Claude supports PDF documents directly
+        if self.provider == "anthropic":
+            response_text = self._extract_anthropic_pdf(pdf_base64)
+        elif self.provider in ["openai", "deepseek", "groq", "ollama"]:
+            # OpenAI-compatible APIs don't support PDF directly, convert to image
+            # For now, we'll raise an error - in production, use pdf2image
+            raise NotImplementedError(
+                f"{self.provider} doesn't support direct PDF extraction. "
+                "Use Anthropic or convert PDF to images first."
+            )
+        else:
+            raise ValueError(f"Provider {self.provider} doesn't support PDF extraction")
+        
+        # Extract JSON from response
+        json_data = self._extract_json_from_text(response_text)
+        
+        # Add metadata
+        json_data['source_file'] = source_file
+        json_data['ai_provider'] = self.provider
+        json_data['ai_model'] = self.model
+        
+        # Parse and validate with Pydantic
+        return InvoiceData(**json_data)
+    
+    def _extract_anthropic_pdf(self, pdf_base64: str) -> str:
+        """Extract using Anthropic Claude (supports PDF natively)."""
         message = self.client.messages.create(
             model=self.model,
-            max_tokens=4096,
-            temperature=0.0,
+            max_tokens=self.max_tokens,
+            temperature=self.temperature,
             messages=[
                 {
                     "role": "user",
@@ -208,16 +347,7 @@ Important:
                 }
             ],
         )
-        
-        # Extract JSON from response
-        response_text = message.content[0].text
-        json_data = self._extract_json_from_text(response_text)
-        
-        # Add metadata
-        json_data['source_file'] = source_file
-        
-        # Parse and validate with Pydantic
-        return InvoiceData(**json_data)
+        return message.content[0].text
     
     def extract_invoice_data(self, file_path: Path) -> Dict[str, Any]:
         """Extract invoice data from a file (PDF or image).
