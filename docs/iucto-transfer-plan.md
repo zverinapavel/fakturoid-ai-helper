@@ -57,15 +57,18 @@ fakturoid/
 
 ## 🔌 iÚčto API - Analýza
 
-### Endpoint dokumentace:
+### API Endpoint:
+**Base URL:** `https://online.iucto.cz/api`
+
+### Dokumentace:
 https://iucto.docs.apiary.io/
 
 ### Klíčové endpointy:
 
 #### 1. Faktury vystavené (Issued Invoices)
 ```
-GET /api/invoices
-GET /api/invoices/{id}
+GET https://online.iucto.cz/api/invoices
+GET https://online.iucto.cz/api/invoices/{id}
 ```
 
 **Parametry:**
@@ -75,8 +78,8 @@ GET /api/invoices/{id}
 
 #### 2. Faktury přijaté (Received Invoices/Expenses)
 ```
-GET /api/expenses
-GET /api/expenses/{id}
+GET https://online.iucto.cz/api/expenses
+GET https://online.iucto.cz/api/expenses/{id}
 ```
 
 **Parametry:**

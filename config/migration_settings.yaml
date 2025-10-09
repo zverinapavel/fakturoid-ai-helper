@@ -2,7 +2,7 @@
 
 # iÚčto API settings
 iucto:
-  base_url: "https://app.iucto.cz/api"
+  base_url: "https://online.iucto.cz/api"
   timeout: 30
 
 # Migration settings

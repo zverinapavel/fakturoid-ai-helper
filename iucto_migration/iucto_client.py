@@ -12,7 +12,7 @@ class IUctoClient:
     API Documentation: https://iucto.docs.apiary.io/
     """
     
-    def __init__(self, api_key: str, base_url: str = "https://app.iucto.cz/api"):
+    def __init__(self, api_key: str, base_url: str = "https://online.iucto.cz/api"):
         """Initialize iÚčto client.
         
         Args:

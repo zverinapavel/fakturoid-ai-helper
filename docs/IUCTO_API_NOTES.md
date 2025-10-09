@@ -18,15 +18,17 @@ SSLError: certificate verify failed: Hostname mismatch
 
 #### Option 1: Zkontrolujte správnou URL
 
-iÚčto může používat jiné URL než `app.iucto.cz`:
-- `api.iucto.cz`
-- `www.iucto.cz/api`
-- `iucto.cz/api`
+**✅ Správná URL:** `https://online.iucto.cz/api`
 
-**Upravte v `config/migration_settings.yaml`:**
+Ostatní URL varianty (pokud by byla potřeba):
+- ❌ `app.iucto.cz/api` - stará/neplatná
+- ❌ `api.iucto.cz` - neexistuje
+- ✅ `online.iucto.cz/api` - **správně!**
+
+**Konfigurace v `config/migration_settings.yaml`:**
 ```yaml
 iucto:
-  base_url: "https://api.iucto.cz"  # Zkuste různé varianty
+  base_url: "https://online.iucto.cz/api"  # ✓ Správně
 ```
 
 #### Option 2: Manuální test API
