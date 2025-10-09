@@ -3,7 +3,9 @@
 # iÚčto API settings
 iucto:
   base_url: "https://online.iucto.cz/api"
+  api_version: "1.3"  # API version for endpoints
   timeout: 30
+  page_size: 200  # Maximum records per page (max allowed: 200)
 
 # Migration settings
 migration:

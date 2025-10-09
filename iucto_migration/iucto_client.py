@@ -12,15 +12,17 @@ class IUctoClient:
     API Documentation: https://iucto.docs.apiary.io/
     """
     
-    def __init__(self, api_key: str, base_url: str = "https://online.iucto.cz/api"):
+    def __init__(self, api_key: str, base_url: str = "https://online.iucto.cz/api", api_version: str = "1.3"):
         """Initialize iÚčto client.
         
         Args:
             api_key: iÚčto API key (from account settings)
             base_url: API base URL
+            api_version: API version (default: 1.3)
         """
         self.api_key = api_key
         self.base_url = base_url
+        self.api_version = api_version
         self.session = requests.Session()
         self.session.headers.update({
             'X-Api-Key': api_key,
@@ -36,28 +38,12 @@ class IUctoClient:
             True if connection successful
         """
         try:
-            # Try a simple endpoint - adjust based on actual iÚčto API
-            # Common endpoints: /account, /user, /invoices
-            response = self.session.get(f"{self.base_url}/invoices", params={'limit': 1})
-            return response.status_code in [200, 401]  # 401 means API is up, auth might be wrong
+            # Test with versioned endpoint and pagination
+            url = f"{self.base_url}/{self.api_version}/invoice_issued"
+            response = self.session.get(url, params={'page': 1, 'pageSize': 1})
+            return response.status_code == 200
         except Exception as e:
             print(f"Connection test failed: {e}")
-            print(f"\nTrying alternative: checking if API responds...")
-            try:
-                # Try without SSL verification as fallback (not recommended for production)
-                import urllib3
-                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-                response = requests.get(f"{self.base_url}/invoices", 
-                                       headers={'X-Api-Key': self.api_key},
-                                       params={'limit': 1},
-                                       verify=False,
-                                       timeout=10)
-                if response.status_code in [200, 401]:
-                    print("⚠️  Connection works but SSL verification disabled")
-                    print("   Consider updating SSL certificates or checking API URL")
-                    return True
-            except Exception as e2:
-                print(f"Alternative connection also failed: {e2}")
             return False
     
     def get_account_info(self) -> Dict[str, Any]:
@@ -86,34 +72,60 @@ class IUctoClient:
         status: str = "all",
         limit: Optional[int] = None
     ) -> List[Dict]:
-        """Fetch issued invoices (vystavené faktury).
+        """Fetch issued invoices (vystavené faktury) with pagination.
         
         Args:
             year: Filter by year (e.g., 2013)
             status: Filter by status (all, paid, unpaid)
-            limit: Maximum number of invoices to return
+            limit: Maximum number of invoices to return (None = all)
             
         Returns:
             List of invoice dictionaries
         """
-        url = f"{self.base_url}/invoices"
-        params = {}
+        url = f"{self.base_url}/{self.api_version}/invoice_issued"
         
-        if year:
-            params['year'] = year
-        if status != 'all':
-            params['status'] = status
-        if limit:
-            params['limit'] = limit
+        all_invoices = []
+        page = 1
+        page_size = 200  # Maximum allowed
         
-        response = self.session.get(url, params=params)
-        response.raise_for_status()
+        while True:
+            params = {
+                'page': page,
+                'pageSize': page_size
+            }
+            
+            if year:
+                params['year'] = year
+            if status != 'all':
+                params['status'] = status
+            
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract invoices from response
+            if isinstance(data, dict):
+                invoices = data.get('invoices', data.get('items', []))
+                total_pages = data.get('totalPages', 1)
+                current_page = data.get('page', page)
+            else:
+                invoices = data if isinstance(data, list) else []
+                total_pages = 1
+            
+            all_invoices.extend(invoices)
+            
+            # Check if we should stop
+            if limit and len(all_invoices) >= limit:
+                return all_invoices[:limit]
+            
+            if page >= total_pages or len(invoices) == 0:
+                break
+            
+            page += 1
+            time.sleep(0.1)  # Small delay between pages
         
-        data = response.json()
-        # Handle both list and paginated response
-        if isinstance(data, dict) and 'invoices' in data:
-            return data['invoices']
-        return data if isinstance(data, list) else []
+        return all_invoices
     
     def get_received_invoices(
         self, 
@@ -121,34 +133,60 @@ class IUctoClient:
         status: str = "all",
         limit: Optional[int] = None
     ) -> List[Dict]:
-        """Fetch received invoices/expenses (přijaté faktury).
+        """Fetch received invoices/expenses (přijaté faktury) with pagination.
         
         Args:
             year: Filter by year
             status: Filter by status (all, paid, unpaid)
-            limit: Maximum number to return
+            limit: Maximum number to return (None = all)
             
         Returns:
             List of expense dictionaries
         """
-        url = f"{self.base_url}/expenses"
-        params = {}
+        url = f"{self.base_url}/{self.api_version}/invoice_received"
         
-        if year:
-            params['year'] = year
-        if status != 'all':
-            params['status'] = status
-        if limit:
-            params['limit'] = limit
+        all_expenses = []
+        page = 1
+        page_size = 200  # Maximum allowed
         
-        response = self.session.get(url, params=params)
-        response.raise_for_status()
+        while True:
+            params = {
+                'page': page,
+                'pageSize': page_size
+            }
+            
+            if year:
+                params['year'] = year
+            if status != 'all':
+                params['status'] = status
+            
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            
+            data = response.json()
+            
+            # Extract expenses from response
+            if isinstance(data, dict):
+                expenses = data.get('expenses', data.get('invoices', data.get('items', [])))
+                total_pages = data.get('totalPages', 1)
+                current_page = data.get('page', page)
+            else:
+                expenses = data if isinstance(data, list) else []
+                total_pages = 1
+            
+            all_expenses.extend(expenses)
+            
+            # Check if we should stop
+            if limit and len(all_expenses) >= limit:
+                return all_expenses[:limit]
+            
+            if page >= total_pages or len(expenses) == 0:
+                break
+            
+            page += 1
+            time.sleep(0.1)  # Small delay between pages
         
-        data = response.json()
-        # Handle both list and paginated response
-        if isinstance(data, dict) and 'expenses' in data:
-            return data['expenses']
-        return data if isinstance(data, list) else []
+        return all_expenses
     
     def get_invoice_detail(self, invoice_id: int) -> Dict[str, Any]:
         """Get detailed information about a specific invoice.
@@ -159,7 +197,7 @@ class IUctoClient:
         Returns:
             Invoice detail dictionary
         """
-        url = f"{self.base_url}/invoices/{invoice_id}"
+        url = f"{self.base_url}/{self.api_version}/invoice_issued/{invoice_id}"
         response = self.session.get(url)
         response.raise_for_status()
         return response.json()
@@ -173,7 +211,7 @@ class IUctoClient:
         Returns:
             Expense detail dictionary
         """
-        url = f"{self.base_url}/expenses/{expense_id}"
+        url = f"{self.base_url}/{self.api_version}/invoice_received/{expense_id}"
         response = self.session.get(url)
         response.raise_for_status()
         return response.json()
