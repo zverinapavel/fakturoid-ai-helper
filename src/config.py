@@ -16,24 +16,14 @@ PROJECT_ROOT = Path(__file__).parent.parent.resolve()
 
 
 def get_invoices_dir() -> Path:
-    """Get invoices directory as absolute path."""
-    env_path = os.getenv("INVOICES_DIR")
-    if env_path:
-        path = Path(env_path)
-        # If env path is absolute, use as-is; if relative, make relative to PROJECT_ROOT
-        return path if path.is_absolute() else (PROJECT_ROOT / path)
-    # Default: data/invoices relative to project root (already absolute since PROJECT_ROOT is absolute)
+    """Get invoices directory as absolute path (from YAML or default)."""
+    # Use default - YAML values will override this via Pydantic
     return PROJECT_ROOT / "data" / "invoices"
 
 
 def get_processed_dir() -> Path:
-    """Get processed directory as absolute path."""
-    env_path = os.getenv("PROCESSED_DIR")
-    if env_path:
-        path = Path(env_path)
-        # If env path is absolute, use as-is; if relative, make relative to PROJECT_ROOT
-        return path if path.is_absolute() else (PROJECT_ROOT / path)
-    # Default: data/processed relative to project root (already absolute since PROJECT_ROOT is absolute)
+    """Get processed directory as absolute path (from YAML or default)."""
+    # Use default - YAML values will override this via Pydantic
     return PROJECT_ROOT / "data" / "processed"
 
 

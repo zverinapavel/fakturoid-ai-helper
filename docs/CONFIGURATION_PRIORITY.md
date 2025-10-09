@@ -20,45 +20,39 @@ Systém načítá konfiguraci v tomto pořadí (od nejvyšší k nejnižší pri
 
 ### Priorita:
 
-1. **Environment variable** (`INVOICES_DIR`, `PROCESSED_DIR`)
-2. **YAML config** (`directories.invoices`, `directories.processed`)
-3. **Default** (`data/invoices`, `data/processed`)
+1. **YAML config** (`directories.invoices`, `directories.processed`)
+2. **Default** (`data/invoices`, `data/processed`)
+
+**Note:** Directories are NOT configurable via .env (only via YAML) to avoid confusion.
 
 ### Příklad:
 
-**Scenario 1: Jen defaults**
-```bash
-# Žádný .env, žádný YAML nebo prázdné hodnoty
+**Scenario 1: Použít defaults**
+```yaml
+# config/settings.yaml - prázdné nebo výchozí hodnoty
+directories:
+  invoices: "data/invoices"
+  processed: "data/processed"
 ```
 → Použije se: `/path/to/project/data/invoices`
 
-**Scenario 2: YAML nastavení**
+**Scenario 2: Custom YAML cesty**
 ```yaml
 # config/settings.yaml
 directories:
-  invoices: "my/custom/invoices"
-  processed: "my/custom/processed"
+  invoices: "monthly_invoices"
+  processed: "archive/processed"
 ```
-→ Použije se: `/path/to/project/my/custom/invoices`
+→ Použije se: `/path/to/project/monthly_invoices`
 
-**Scenario 3: .env nastavení**
-```bash
-# .env
-INVOICES_DIR=/absolute/path/to/invoices
-PROCESSED_DIR=/absolute/path/to/processed
-```
-→ Použije se: `/absolute/path/to/invoices` (ignoruje YAML)
-
-**Scenario 4: .env + YAML (oboje)**
-```bash
-# .env
-INVOICES_DIR=/env/path
-
-# settings.yaml
+**Scenario 3: Absolutní cesty v YAML**
+```yaml
+# config/settings.yaml
 directories:
-  invoices: "yaml/path"
+  invoices: "/absolute/path/to/invoices"
+  processed: "/absolute/path/to/processed"
 ```
-→ Použije se: `/env/path` (.env má přednost)
+→ Použije se: `/absolute/path/to/invoices`
 
 ---
 
@@ -181,8 +175,8 @@ URL a timeout lze nastavit v YAML.
 | Konfigurace | .env | YAML | Default | Notes |
 |-------------|------|------|---------|-------|
 | **Directories** | | | | |
-| invoices | `INVOICES_DIR` | `directories.invoices` | `data/invoices` | Převede se na absolutní |
-| processed | `PROCESSED_DIR` | `directories.processed` | `data/processed` | Převede se na absolutní |
+| invoices | - | `directories.invoices` | `data/invoices` | Pouze YAML, převede se na absolutní |
+| processed | - | `directories.processed` | `data/processed` | Pouze YAML, převede se na absolutní |
 | **AI** | | | | |
 | provider | `AI_PROVIDER` | `ai.provider` | `anthropic` | |
 | model | `AI_MODEL` | `ai.model` | `claude-3.5-sonnet...` | |

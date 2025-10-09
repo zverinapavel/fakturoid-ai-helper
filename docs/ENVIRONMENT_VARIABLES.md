@@ -139,56 +139,7 @@ AUTO_SUBMIT=false
 
 ---
 
-### 7. INVOICES_DIR
-
-**Purpose:** Directory where invoice files (PDF, images) are loaded from.
-
-**Default:** `data/invoices` (relative to project root)
-
-**Supports:**
-- Relative paths: `data/invoices`
-- Absolute paths: `/Users/yourname/Documents/Invoices`
-
-**Example:**
-```bash
-INVOICES_DIR=data/invoices
-# or
-INVOICES_DIR=/Users/pavelzverina/Documents/IncomingInvoices
-```
-
-**Used in:**
-- `src/config.py` → `DirectoriesConfig.invoices`
-- `src/agent.py` → `InvoiceProcessingAgent.invoices_dir`
-- `src/document_processor.py` → File scanning
-
----
-
-### 8. PROCESSED_DIR
-
-**Purpose:** Directory where successfully processed invoices are archived.
-
-**Default:** `data/processed` (relative to project root)
-
-**Supports:**
-- Relative paths: `data/processed`
-- Absolute paths: `/Users/yourname/Documents/Processed`
-
-**Example:**
-```bash
-PROCESSED_DIR=data/processed
-# or
-PROCESSED_DIR=/Users/pavelzverina/Documents/ProcessedInvoices
-```
-
-**Used in:**
-- `src/config.py` → `DirectoriesConfig.processed`
-- `src/agent.py` → `InvoiceProcessingAgent._move_to_processed()`
-
-**Note:** Files are moved here with timestamp prefix after successful submission.
-
----
-
-### 9. LOG_LEVEL
+### 7. LOG_LEVEL
 
 **Purpose:** Controls verbosity of logging output.
 
