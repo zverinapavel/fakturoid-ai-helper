@@ -649,15 +649,25 @@ class FakturoidClient:
         
         if not lines:
             # Create a single line item with total
-            # Calculate price without VAT (assuming 21% VAT included)
             total = float(invoice_data.total_amount)
-            price_without_vat = total / 1.21
+            
+            # Determine VAT rate based on whether tax is specified
+            if invoice_data.tax_amount and invoice_data.tax_amount > 0:
+                # Tax amount is specified - calculate VAT rate
+                tax = float(invoice_data.tax_amount)
+                price_without_vat = total - tax
+                # Calculate VAT rate as percentage
+                vat_rate = round((tax / price_without_vat) * 100) if price_without_vat > 0 else 21
+            else:
+                # No tax specified - treat total as price WITHOUT VAT, VAT rate = 0%
+                price_without_vat = total
+                vat_rate = 0
             
             lines = [{
                 'name': invoice_data.notes or f'Invoice {invoice_data.invoice_number}',
                 'quantity': '1.0',
                 'unit_price': str(round(price_without_vat, 2)),
-                'vat_rate': 21
+                'vat_rate': vat_rate
             }]
         
         # Normalize currency (handle common variations)
