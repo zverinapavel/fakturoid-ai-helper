@@ -90,6 +90,22 @@ class DirectoriesConfig(BaseModel):
     project_root: Path = Field(default_factory=lambda: PROJECT_ROOT)
     invoices: Path = Field(default_factory=get_invoices_dir)
     processed: Path = Field(default_factory=get_processed_dir)
+    
+    @model_validator(mode='after')
+    def make_paths_absolute(self):
+        """Ensure all paths are absolute, relative to project root.
+        
+        This handles paths from YAML config that come as strings.
+        """
+        # Make invoices absolute if it's relative
+        if not self.invoices.is_absolute():
+            self.invoices = PROJECT_ROOT / self.invoices
+        
+        # Make processed absolute if it's relative
+        if not self.processed.is_absolute():
+            self.processed = PROJECT_ROOT / self.processed
+        
+        return self
 
 
 class ExtractionConfig(BaseModel):
