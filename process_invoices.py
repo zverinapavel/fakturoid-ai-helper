@@ -127,9 +127,11 @@ def process_manual_mode(agent: InvoiceProcessingAgent, max_files: int = None) ->
                 print("\n⏳ Odesílám do Fakturoidu...")
                 try:
                     fakturoid_response = agent.fakturoid_client.submit_expense(invoice_data)
-                    print(f"✅ Úspěšně odesláno!")
-                    print(f"   ID: {fakturoid_response.get('id')}")
+                    print(f"\n✅ Úspěšně odesláno!")
                     print(f"   Číslo nákladu: {fakturoid_response.get('number')}")
+                    print(f"   ID: {fakturoid_response.get('id')}")
+                    if fakturoid_response.get('html_url'):
+                        print(f"   🔗 Odkaz: {fakturoid_response.get('html_url')}")
                     
                     # Move to processed
                     agent._move_to_processed(file_path, invoice_data, fakturoid_response)
@@ -329,8 +331,11 @@ def main():
                     print(f"      ... a {len(data['line_items']) - 3} dalších")
         
         if result.get('fakturoid_response'):
-            print(f"   Fakturoid ID: {result['fakturoid_response'].get('id')}")
-            print(f"   Číslo nákladu: {result['fakturoid_response'].get('number')}")
+            resp = result['fakturoid_response']
+            print(f"   Fakturoid ID: {resp.get('id')}")
+            print(f"   Číslo nákladu: {resp.get('number')}")
+            if resp.get('html_url'):
+                print(f"   🔗 {resp.get('html_url')}")
         
         if result.get('error'):
             print(f"   Chyba: {result['error']}")

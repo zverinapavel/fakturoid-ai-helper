@@ -139,7 +139,15 @@ class InvoiceProcessingAgent:
                 fakturoid_response = self.fakturoid_client.submit_expense(invoice_data)
                 result['fakturoid_response'] = fakturoid_response
                 result['status'] = 'submitted'
-                self.logger.info(f"Submitted expense {invoice_data.invoice_number} to Fakturoid")
+                
+                # Display success message with link
+                print(f"\n✅ Úspěšně odesláno do Fakturoidu!")
+                print(f"   Číslo nákladu: {fakturoid_response.get('number')}")
+                print(f"   ID: {fakturoid_response.get('id')}")
+                if fakturoid_response.get('html_url'):
+                    print(f"   🔗 Odkaz: {fakturoid_response.get('html_url')}")
+                
+                self.logger.info(f"Submitted expense {invoice_data.invoice_number} to Fakturoid - {fakturoid_response.get('html_url')}")
                 
                 # Move to processed directory with descriptive name
                 self._move_to_processed(file_path, invoice_data, fakturoid_response)
@@ -180,7 +188,15 @@ class InvoiceProcessingAgent:
             fakturoid_response = self.fakturoid_client.submit_expense(invoice_data)
             result['fakturoid_response'] = fakturoid_response
             result['status'] = 'submitted'
-            self.logger.info(f"Submitted expense {invoice_data.invoice_number} to Fakturoid")
+            
+            # Display success message with link
+            print(f"\n✅ Úspěšně odesláno do Fakturoidu!")
+            print(f"   Číslo nákladu: {fakturoid_response.get('number')}")
+            print(f"   ID: {fakturoid_response.get('id')}")
+            if fakturoid_response.get('html_url'):
+                print(f"   🔗 Odkaz: {fakturoid_response.get('html_url')}")
+            
+            self.logger.info(f"Submitted expense {invoice_data.invoice_number} to Fakturoid - {fakturoid_response.get('html_url')}")
             
             # Move to processed directory with descriptive name
             self._move_to_processed(file_path, invoice_data, fakturoid_response)
