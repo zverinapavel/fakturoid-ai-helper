@@ -107,23 +107,11 @@ class InvoiceProcessingAgent:
         }
         
         try:
-            # Extract document data
-            base64_data, media_type = self.doc_processor.file_to_base64(file_path)
+            # Extract invoice data using AI (includes validation and tracking)
+            invoice_data_dict = self.ai_extractor.extract_invoice_data(file_path)
+            invoice_data = InvoiceData(**invoice_data_dict)
             
-            # Extract invoice data using AI
-            if media_type == 'application/pdf':
-                invoice_data = self.ai_extractor.extract_from_pdf(
-                    base64_data,
-                    source_file=file_path.name
-                )
-            else:
-                invoice_data = self.ai_extractor.extract_from_image(
-                    base64_data,
-                    media_type=media_type,
-                    source_file=file_path.name
-                )
-            
-            result['extracted_data'] = invoice_data.model_dump()
+            result['extracted_data'] = invoice_data_dict
             result['status'] = 'extracted'
             
             self.logger.info(f"Extracted data from {file_path.name}")
@@ -242,6 +230,10 @@ class InvoiceProcessingAgent:
             f"Batch processing complete: {successful} submitted, "
             f"{errors} errors out of {len(results)} total"
         )
+        
+        # Display AI usage summary
+        if hasattr(self.ai_extractor, 'print_usage_summary'):
+            self.ai_extractor.print_usage_summary()
         
         return results
     

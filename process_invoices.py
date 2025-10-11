@@ -97,24 +97,13 @@ def process_manual_mode(agent: InvoiceProcessingAgent, max_files: int = None) ->
         print(f"{'='*60}")
         
         try:
-            # Extract data
+            # Extract data using extract_invoice_data (includes validation and tracking)
             print("\n⏳ Extrahuji data...")
-            base64_data, media_type = agent.doc_processor.file_to_base64(file_path)
-            
-            if media_type == 'application/pdf':
-                invoice_data = agent.ai_extractor.extract_from_pdf(
-                    base64_data,
-                    source_file=file_path.name
-                )
-            else:
-                invoice_data = agent.ai_extractor.extract_from_image(
-                    base64_data,
-                    media_type=media_type,
-                    source_file=file_path.name
-                )
+            invoice_data_dict = agent.ai_extractor.extract_invoice_data(file_path)
+            invoice_data = InvoiceData(**invoice_data_dict)
             
             # Display extracted data
-            display_invoice_details(invoice_data.model_dump())
+            display_invoice_details(invoice_data_dict)
             
             # Ask for confirmation
             print(f"\n❓ Odeslat tuto fakturu do Fakturoidu?")
@@ -351,6 +340,10 @@ def main():
     print("="*60)
     print(f"SUMMARY: {len(results)} total | {submitted} submitted | {skipped} skipped | {extracted} extracted | {errors} errors")
     print("="*60)
+    
+    # Display AI usage summary
+    if hasattr(agent, 'ai_extractor') and hasattr(agent.ai_extractor, 'print_usage_summary'):
+        agent.ai_extractor.print_usage_summary()
     
     if mode == 'extract-only':
         print(f"\n📋 {len(results)} invoice(s) extracted")

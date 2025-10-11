@@ -72,6 +72,17 @@ class AIInvoiceExtractor:
         'ollama': 'llama3.2-vision'
     }
     
+    # Approximate costs per 1M tokens (input/output) in USD
+    MODEL_COSTS = {
+        'claude-3-5-sonnet-20241022': {'input': 3.0, 'output': 15.0},
+        'claude-3-opus-20240229': {'input': 15.0, 'output': 75.0},
+        'gpt-4o': {'input': 2.5, 'output': 10.0},
+        'gpt-4o-mini': {'input': 0.15, 'output': 0.6},
+        'deepseek-chat': {'input': 0.14, 'output': 0.28},
+        'llama-3.2-90b-vision-preview': {'input': 0.0, 'output': 0.0},  # Groq is free
+        'llama3.2-vision': {'input': 0.0, 'output': 0.0}  # Ollama local
+    }
+    
     EXTRACTION_PROMPT = """Analyze this invoice document and extract the following information in JSON format:
 
 Required fields:
@@ -153,6 +164,15 @@ Important:
         
         # Initialize the appropriate client
         self._init_client()
+        
+        # Usage tracking
+        self.usage_stats = {
+            'total_requests': 0,
+            'total_input_tokens': 0,
+            'total_output_tokens': 0,
+            'total_cost_usd': 0.0,
+            'requests': []
+        }
     
     def _init_client(self):
         """Initialize the AI client based on provider."""
@@ -256,6 +276,14 @@ Important:
                 }
             ],
         )
+        
+        # Track usage
+        self._track_usage(
+            message.usage.input_tokens,
+            message.usage.output_tokens,
+            operation='extract_image'
+        )
+        
         return message.content[0].text
     
     def _extract_openai_compatible_image(self, image_base64: str, media_type: str) -> str:
@@ -282,6 +310,15 @@ Important:
                 }
             ]
         )
+        
+        # Track usage
+        if hasattr(response, 'usage') and response.usage:
+            self._track_usage(
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                operation='extract_image'
+            )
+        
         return response.choices[0].message.content
     
     def extract_from_pdf(
@@ -347,13 +384,22 @@ Important:
                 }
             ],
         )
+        
+        # Track usage
+        self._track_usage(
+            message.usage.input_tokens,
+            message.usage.output_tokens,
+            operation='extract_pdf'
+        )
+        
         return message.content[0].text
     
-    def extract_invoice_data(self, file_path: Path) -> Dict[str, Any]:
+    def extract_invoice_data(self, file_path: Path, validate: bool = True) -> Dict[str, Any]:
         """Extract invoice data from a file (PDF or image).
         
         Args:
             file_path: Path to invoice file
+            validate: Whether to validate and correct extraction with AI
             
         Returns:
             Extracted invoice data as dictionary
@@ -373,8 +419,272 @@ Important:
         else:
             raise ValueError(f"Unsupported file type: {file_path.suffix}")
         
+        # Validate and correct if requested
+        if validate:
+            invoice_data = self._validate_and_correct(invoice_data, base64_data, media_type, doc_processor.is_pdf(file_path))
+        
         # Return as dictionary
         return invoice_data.model_dump()
+    
+    def _validate_and_correct(self, invoice_data: InvoiceData, document_base64: str, media_type: str, is_pdf: bool) -> InvoiceData:
+        """Validate extracted data and correct if needed using AI.
+        
+        Args:
+            invoice_data: Initially extracted invoice data
+            document_base64: Base64 encoded document
+            media_type: Media type of document
+            is_pdf: Whether document is PDF
+            
+        Returns:
+            Validated and potentially corrected invoice data
+        """
+        import json
+        
+        # Create validation prompt
+        validation_prompt = f"""You are validating invoice data extraction. Review the extracted data and the original invoice document.
+
+EXTRACTED DATA:
+{json.dumps(invoice_data.model_dump(), indent=2, ensure_ascii=False)}
+
+VALIDATION CHECKLIST:
+1. **Line Items Check**: 
+   - Are the line_items actual products/services from the invoice?
+   - NOT legal notices, tax information, payment instructions, or footer text
+   - Each line item should have a clear description, quantity, and price
+   - Common mistakes: extracting "Reverse charge applies" or "Tax obligation transferred" as line items
+
+2. **Amounts Check**:
+   - Does total_amount match the invoice total?
+   - If line_items exist, do they roughly add up to total_amount?
+   
+3. **Date Format Check**:
+   - Are dates in YYYY-MM-DD format?
+   
+4. **Currency Check**:
+   - Is currency a valid ISO code (CZK, EUR, USD, not "Kc" or "Kč")?
+
+If you find issues, return corrected JSON with the same structure.
+If everything is correct, return the original JSON unchanged.
+
+IMPORTANT RULES:
+- For line_items: Only include actual products/services being sold
+- If line_items look suspicious (like tax notices), remove them and leave line_items empty
+- Preserve all other fields exactly as extracted
+
+Return ONLY the corrected JSON, no explanations:"""
+
+        try:
+            # Send validation request
+            if self.provider == "anthropic":
+                response_text = self._validate_anthropic(document_base64, media_type, is_pdf, validation_prompt)
+            elif self.provider in ["openai", "deepseek", "groq", "ollama"]:
+                if is_pdf:
+                    # Can't validate PDF with OpenAI-compatible APIs
+                    print("⚠ Validation skipped: Provider doesn't support PDF")
+                    return invoice_data
+                response_text = self._validate_openai_compatible(document_base64, media_type, validation_prompt)
+            else:
+                print("⚠ Validation skipped: Provider not supported")
+                return invoice_data
+            
+            # Parse corrected data
+            corrected_data = self._extract_json_from_text(response_text)
+            
+            # Check if anything was corrected
+            original_dict = invoice_data.model_dump()
+            if corrected_data != original_dict:
+                print("✓ AI validation corrected some fields")
+                # Show what changed
+                for key in corrected_data:
+                    if corrected_data.get(key) != original_dict.get(key):
+                        print(f"  - {key}: {original_dict.get(key)} → {corrected_data.get(key)}")
+            else:
+                print("✓ AI validation: data looks good")
+            
+            return InvoiceData(**corrected_data)
+            
+        except Exception as e:
+            print(f"⚠ Validation failed: {e}")
+            print("  Using original extraction")
+            return invoice_data
+    
+    def _validate_anthropic(self, document_base64: str, media_type: str, is_pdf: bool, prompt: str) -> str:
+        """Validate using Anthropic Claude."""
+        if is_pdf:
+            content = [
+                {
+                    "type": "document",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "application/pdf",
+                        "data": document_base64,
+                    },
+                },
+                {"type": "text", "text": prompt}
+            ]
+        else:
+            content = [
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type,
+                        "data": document_base64,
+                    },
+                },
+                {"type": "text", "text": prompt}
+            ]
+        
+        message = self.client.messages.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=0.0,
+            messages=[{"role": "user", "content": content}]
+        )
+        
+        # Track usage
+        self._track_usage(
+            message.usage.input_tokens,
+            message.usage.output_tokens,
+            operation='validation'
+        )
+        
+        return message.content[0].text
+    
+    def _validate_openai_compatible(self, document_base64: str, media_type: str, prompt: str) -> str:
+        """Validate using OpenAI-compatible API."""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            max_tokens=self.max_tokens,
+            temperature=0.0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{media_type};base64,{document_base64}"}
+                        },
+                        {"type": "text", "text": prompt}
+                    ]
+                }
+            ]
+        )
+        
+        # Track usage
+        if hasattr(response, 'usage') and response.usage:
+            self._track_usage(
+                response.usage.prompt_tokens,
+                response.usage.completion_tokens,
+                operation='validation'
+            )
+        
+        return response.choices[0].message.content
+    
+    def _track_usage(self, input_tokens: int, output_tokens: int, operation: str = 'extraction'):
+        """Track API usage and costs.
+        
+        Args:
+            input_tokens: Number of input tokens used
+            output_tokens: Number of output tokens used
+            operation: Type of operation (extraction, validation)
+        """
+        import datetime
+        
+        # Calculate cost
+        costs = self.MODEL_COSTS.get(self.model, {'input': 0, 'output': 0})
+        cost_usd = (input_tokens * costs['input'] / 1_000_000) + (output_tokens * costs['output'] / 1_000_000)
+        
+        # Update totals
+        self.usage_stats['total_requests'] += 1
+        self.usage_stats['total_input_tokens'] += input_tokens
+        self.usage_stats['total_output_tokens'] += output_tokens
+        self.usage_stats['total_cost_usd'] += cost_usd
+        
+        # Store request details
+        self.usage_stats['requests'].append({
+            'timestamp': datetime.datetime.now().isoformat(),
+            'operation': operation,
+            'model': self.model,
+            'provider': self.provider,
+            'input_tokens': input_tokens,
+            'output_tokens': output_tokens,
+            'cost_usd': cost_usd
+        })
+        
+        # Print summary
+        print(f"💰 API Usage: {input_tokens:,} in + {output_tokens:,} out = ${cost_usd:.4f} ({operation})")
+    
+    def get_usage_stats(self) -> Dict[str, Any]:
+        """Get usage statistics.
+        
+        Returns:
+            Dictionary with usage stats
+        """
+        return self.usage_stats.copy()
+    
+    def _convert_to_czk(self, usd_amount: float) -> float:
+        """Convert USD to CZK using current ČNB exchange rate.
+        
+        Args:
+            usd_amount: Amount in USD
+            
+        Returns:
+            Amount in CZK
+        """
+        import requests
+        from datetime import datetime
+        
+        # Get current exchange rate from ČNB
+        today = datetime.now().strftime('%d.%m.%Y')
+        
+        try:
+            # ČNB daily exchange rates API
+            url = f"https://www.cnb.cz/cs/financni-trhy/devizovy-trh/kurzy-devizoveho-trhu/kurzy-devizoveho-trhu/denni_kurz.txt"
+            response = requests.get(url, timeout=5)
+            response.raise_for_status()
+            
+            # Parse the response (format: "datum|země|měna|množství|kód|kurz")
+            lines = response.text.strip().split('\n')
+            
+            for line in lines[2:]:  # Skip header lines
+                parts = line.split('|')
+                if len(parts) >= 5 and parts[3] == 'USD':
+                    # Exchange rate format: "1" USD = "XX,XXX" CZK
+                    rate_str = parts[4].replace(',', '.')
+                    exchange_rate = float(rate_str)
+                    return usd_amount * exchange_rate
+            
+            # If USD not found in the list, fallback
+            raise ValueError("USD not found in ČNB rates")
+            
+        except Exception as e:
+            # Fallback to approximate rate
+            raise e
+    
+    def print_usage_summary(self):
+        """Print usage summary."""
+        stats = self.usage_stats
+        print("\n" + "="*60)
+        print("📊 AI USAGE SUMMARY")
+        print("="*60)
+        print(f"Provider: {self.provider}")
+        print(f"Model: {self.model}")
+        print(f"Total Requests: {stats['total_requests']}")
+        print(f"Total Input Tokens: {stats['total_input_tokens']:,}")
+        print(f"Total Output Tokens: {stats['total_output_tokens']:,}")
+        print(f"Total Cost: ${stats['total_cost_usd']:.4f} USD")
+        
+        # Get current USD/CZK exchange rate and convert
+        try:
+            czk_cost = self._convert_to_czk(stats['total_cost_usd'])
+            print(f"Total Cost: {czk_cost:.2f} Kč (kurz ČNB)")
+        except Exception as e:
+            # Fallback to approximate rate if ČNB API fails
+            approx_czk = stats['total_cost_usd'] * 23.0
+            print(f"Total Cost: ~{approx_czk:.2f} Kč (odhadovaný kurz)")
+        
+        print("="*60 + "\n")
     
     def _extract_json_from_text(self, text: str) -> Dict[str, Any]:
         """Extract JSON object from text response.
