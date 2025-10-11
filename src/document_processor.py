@@ -33,8 +33,13 @@ class DocumentProcessor:
         """
         files = []
         for ext in self.SUPPORTED_IMAGE_FORMATS | self.SUPPORTED_PDF_FORMAT:
+            # Search for both lowercase and uppercase extensions
             files.extend(self.invoices_dir.glob(f"*{ext}"))
-        return sorted(files)
+            files.extend(self.invoices_dir.glob(f"*{ext.upper()}"))
+        
+        # Remove duplicates (in case filesystem is case-insensitive)
+        unique_files = list(set(files))
+        return sorted(unique_files)
     
     def is_pdf(self, file_path: Path) -> bool:
         """Check if file is a PDF.
