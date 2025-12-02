@@ -189,6 +189,8 @@ class FakturoidClient:
     def list_subjects(self, since: Optional[str] = None) -> List[Dict[str, Any]]:
         """List all subjects (customers/suppliers).
         
+        Note: Fakturoid API may paginate results. This method fetches all pages.
+        
         Args:
             since: ISO 8601 date to filter subjects modified since
             
@@ -201,9 +203,69 @@ class FakturoidClient:
         if since:
             params['since'] = since
         
-        response = self.session.get(url, params=params)
-        response.raise_for_status()
-        return response.json()
+        all_subjects = []
+        page = 1
+        per_page = 40  # Fakturoid default is 40 records per page according to docs
+        
+        while True:
+            params['page'] = page
+            # Note: per_page might not be supported, but we'll try it
+            # If it fails, we'll use default 40 per page
+            
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            
+            subjects = response.json()
+            if not subjects:  # Empty list means no more pages
+                break
+            
+            all_subjects.extend(subjects)
+            
+            # If we got fewer than per_page (or default 40), we're on the last page
+            if len(subjects) < 40:
+                break
+            
+            page += 1
+        
+        return all_subjects
+    
+    def search_subjects(self, query: str) -> List[Dict[str, Any]]:
+        """Search subjects using Fakturoid search endpoint.
+        
+        Searches in: name, full_name, email, email_copy, registration_no, vat_no, private_note
+        
+        Args:
+            query: Search query string
+            
+        Returns:
+            List of matching subjects
+        """
+        self._ensure_token_valid()
+        url = self._get_url("subjects/search.json")
+        params = {'query': query}
+        
+        all_results = []
+        page = 1
+        
+        while True:
+            params['page'] = page
+            
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            
+            results = response.json()
+            if not results:  # Empty list means no more pages
+                break
+            
+            all_results.extend(results)
+            
+            # If we got fewer than 40 (default page size), we're on the last page
+            if len(results) < 40:
+                break
+            
+            page += 1
+        
+        return all_results
     
     def find_subject_by_name(self, name: str) -> Optional[Dict[str, Any]]:
         """Find subject by name (case-insensitive, partial match).
@@ -233,6 +295,8 @@ class FakturoidClient:
     def find_subject_by_vat(self, vat_no: str) -> Optional[Dict[str, Any]]:
         """Find subject by VAT number.
         
+        Uses Fakturoid search endpoint which searches in vat_no field.
+        
         Args:
             vat_no: VAT number
             
@@ -245,17 +309,34 @@ class FakturoidClient:
         # Clean VAT number (remove spaces, dashes)
         vat_clean = re.sub(r'[\s\-]', '', str(vat_no)).upper()
         
-        subjects = self.list_subjects()
-        for subject in subjects:
-            subject_vat = subject.get('vat_no')
-            if subject_vat:
-                subject_vat_clean = re.sub(r'[\s\-]', '', str(subject_vat)).upper()
-                if subject_vat_clean == vat_clean:
-                    return subject
+        print(f"  🔍 Searching for subject with VAT/DIČ: {vat_clean}")
+        
+        # Use search endpoint - it searches in vat_no field
+        # Try both cleaned and original format
+        search_queries = [vat_clean]
+        if str(vat_no) != vat_clean:
+            search_queries.append(str(vat_no))
+        
+        for query in search_queries:
+            print(f"  🔍 Trying search query: '{query}'")
+            results = self.search_subjects(query)
+            
+            # Check if any result matches our VAT exactly
+            for subject in results:
+                subject_vat = subject.get('vat_no')
+                if subject_vat:
+                    subject_vat_clean = re.sub(r'[\s\-]', '', str(subject_vat)).upper()
+                    if subject_vat_clean == vat_clean:
+                        print(f"  ✓ Match found: {subject.get('name')} (ID: {subject.get('id')}, VAT: {subject_vat})")
+                        return subject
+        
+        print(f"  ✗ No subject found with VAT/DIČ: {vat_clean}")
         return None
     
     def find_subject_by_ico(self, ico: str) -> Optional[Dict[str, Any]]:
         """Find subject by IČO (company registration number).
+        
+        Uses Fakturoid search endpoint which searches in registration_no field.
         
         Args:
             ico: IČO (company ID)
@@ -266,16 +347,47 @@ class FakturoidClient:
         if not ico:
             return None
         
-        # Clean IČO (remove spaces, dashes)
+        # Clean IČO (remove spaces, dashes, keep only digits)
         ico_clean = re.sub(r'[^\d]', '', str(ico))
         
-        subjects = self.list_subjects()
-        for subject in subjects:
-            subject_ico = subject.get('registration_no')
-            if subject_ico:  # Only process if not None
-                subject_ico_clean = re.sub(r'[^\d]', '', str(subject_ico))
-                if subject_ico_clean == ico_clean:
-                    return subject
+        if not ico_clean:
+            return None
+        
+        print(f"  🔍 Searching for subject with IČO: {ico_clean}")
+        
+        # Use search endpoint - it searches in registration_no field
+        # Try both with and without leading zeros
+        search_queries = [ico_clean]
+        
+        # Also try the original IČO (might have prefix or formatting)
+        if str(ico) != ico_clean:
+            search_queries.append(str(ico))
+        
+        # Try searching with leading zero removed (in case stored without it)
+        if ico_clean.startswith('0'):
+            search_queries.append(ico_clean.lstrip('0'))
+        
+        for query in search_queries:
+            print(f"  🔍 Trying search query: '{query}'")
+            results = self.search_subjects(query)
+            
+            # Check if any result matches our IČO exactly
+            for subject in results:
+                subject_ico = subject.get('registration_no')
+                if subject_ico:
+                    subject_ico_clean = re.sub(r'[^\d]', '', str(subject_ico))
+                    if subject_ico_clean == ico_clean:
+                        print(f"  ✓ Match found: {subject.get('name')} (ID: {subject.get('id')}, IČO: {subject_ico})")
+                        return subject
+            
+            # If we found results but none matched exactly, show them for debugging
+            if results:
+                print(f"  ⚠ Found {len(results)} results for '{query}', but IČO doesn't match exactly:")
+                for subject in results[:3]:
+                    subject_ico = subject.get('registration_no', 'N/A')
+                    print(f"     - {subject.get('name')}: IČO='{subject_ico}'")
+        
+        print(f"  ✗ No subject found with IČO: {ico_clean}")
         return None
     
     def get_company_from_ares(self, ico: str) -> Optional[Dict[str, Any]]:
@@ -439,6 +551,59 @@ class FakturoidClient:
         response.raise_for_status()
         return response.json()
     
+    def _matches_subject_identifiers(
+        self,
+        subject: Dict[str, Any],
+        supplier_ico: Optional[str] = None,
+        supplier_dic: Optional[str] = None,
+        supplier_vat_number: Optional[str] = None
+    ) -> bool:
+        """Check if subject matches given IČO or VAT identifiers.
+        
+        Returns True if:
+        - At least one identifier (IČO or VAT) matches
+        - OR no identifiers are provided (name-only search)
+        
+        Returns False if:
+        - We have identifiers but none of them match
+        
+        Args:
+            subject: Subject dictionary from Fakturoid
+            supplier_ico: IČO to match
+            supplier_dic: DIČ to match
+            supplier_vat_number: VAT number to match
+            
+        Returns:
+            True if identifiers match, False otherwise
+        """
+        vat_to_check = supplier_vat_number or supplier_dic
+        has_identifiers = bool(supplier_ico or vat_to_check)
+        
+        # If no identifiers provided, consider it a match (name-only search)
+        if not has_identifiers:
+            return True
+        
+        # Check IČO match
+        ico_matches = False
+        if supplier_ico:
+            subject_ico = subject.get('registration_no')
+            if subject_ico:
+                ico_clean = re.sub(r'[^\d]', '', str(supplier_ico))
+                subject_ico_clean = re.sub(r'[^\d]', '', str(subject_ico))
+                ico_matches = (ico_clean == subject_ico_clean)
+        
+        # Check VAT/DIČ match
+        vat_matches = False
+        if vat_to_check:
+            subject_vat = subject.get('vat_no')
+            if subject_vat:
+                vat_clean = re.sub(r'[\s\-]', '', str(vat_to_check)).upper()
+                subject_vat_clean = re.sub(r'[\s\-]', '', str(subject_vat)).upper()
+                vat_matches = (vat_clean == subject_vat_clean)
+        
+        # Return True if at least one identifier matches
+        return ico_matches or vat_matches
+    
     def get_or_create_subject(
         self,
         supplier_name: str,
@@ -452,6 +617,11 @@ class FakturoidClient:
         supplier_country: Optional[str] = None
     ) -> Dict[str, Any]:
         """Get existing subject or create new one.
+        
+        Search priority:
+        1. By IČO (for Czech companies)
+        2. By VAT/DIČ (for foreign companies or Czech companies with DIČ)
+        3. By name (with verification that IČO/VAT matches if provided)
         
         For Czech companies (with IČO), tries to fetch complete data from ARES.
         For foreign companies, uses detailed address fields.
@@ -470,26 +640,49 @@ class FakturoidClient:
         Returns:
             Subject dictionary with 'id'
         """
+        print(f"\n🔍 Looking for existing subject:")
+        print(f"   Name: {supplier_name}")
+        if supplier_ico:
+            print(f"   IČO: {supplier_ico}")
+        if supplier_dic:
+            print(f"   DIČ: {supplier_dic}")
+        if supplier_vat_number:
+            print(f"   VAT: {supplier_vat_number}")
+        
         # Try to find existing subject by IČO first (most reliable for Czech companies)
         if supplier_ico:
             subject = self.find_subject_by_ico(supplier_ico)
             if subject:
-                print(f"✓ Found existing subject by IČO: {subject.get('name')}")
+                print(f"✓ Found existing subject by IČO: {subject.get('name')} (ID: {subject.get('id')})")
                 return subject
         
-        # Try to find by VAT number (for foreign companies)
-        if supplier_vat_number or supplier_dic:
-            vat = supplier_vat_number or supplier_dic
-            subject = self.find_subject_by_vat(vat)
+        # Try to find by VAT number (for foreign companies or Czech companies with DIČ)
+        vat_to_check = supplier_vat_number or supplier_dic
+        if vat_to_check:
+            subject = self.find_subject_by_vat(vat_to_check)
             if subject:
-                print(f"✓ Found existing subject by VAT: {subject.get('name')}")
+                print(f"✓ Found existing subject by VAT/DIČ: {subject.get('name')} (ID: {subject.get('id')})")
                 return subject
         
-        # Try to find by name
+        # Try to find by name, but verify IČO/VAT matches if provided
         subject = self.find_subject_by_name(supplier_name)
         if subject:
-            print(f"✓ Found existing subject by name: {subject.get('name')}")
-            return subject
+            # Debug: show what IČO/VAT the found subject has
+            found_ico = subject.get('registration_no')
+            found_vat = subject.get('vat_no')
+            print(f"  🔍 Found subject by name: {subject.get('name')} (ID: {subject.get('id')})")
+            if found_ico:
+                print(f"     Has IČO: '{found_ico}' (cleaned: {re.sub(r'[^\d]', '', str(found_ico))})")
+            if found_vat:
+                print(f"     Has VAT/DIČ: '{found_vat}' (cleaned: {re.sub(r'[\s\-]', '', str(found_vat)).upper()})")
+            
+            # Verify that identifiers match (if we have them)
+            if self._matches_subject_identifiers(subject, supplier_ico, supplier_dic, supplier_vat_number):
+                print(f"✓ Found existing subject by name: {subject.get('name')} (ID: {subject.get('id')})")
+                return subject
+            else:
+                # Found by name but IČO/VAT doesn't match - this is a different company
+                print(f"⚠ Found subject with same name but different IČO/VAT, will create new subject")
         
         # Subject not found - create new one
         print(f"⚙ Creating new subject: {supplier_name}")
@@ -502,6 +695,8 @@ class FakturoidClient:
             if ares_data:
                 print(f"  ✓ Got data from ARES: {ares_data['name']}")
                 subject_data_dict = ares_data
+                # Mark as supplier
+                subject_data_dict['supplier'] = True
             else:
                 print(f"  ⚠ ARES lookup failed, using extracted data")
         
@@ -563,7 +758,8 @@ class FakturoidClient:
             
             # Build subject data - only include non-empty fields
             subject_data_dict = {
-                'name': supplier_name
+                'name': supplier_name,
+                'supplier': True  # Mark as supplier (not customer)
             }
             
             # Add optional fields only if they have values
@@ -580,8 +776,12 @@ class FakturoidClient:
             if country:
                 subject_data_dict['country'] = country
         
+        # Ensure supplier flag is set for ARES data too
+        if subject_data_dict and 'supplier' not in subject_data_dict:
+            subject_data_dict['supplier'] = True
+        
         created_subject = self.create_subject(subject_data_dict)
-        print(f"  ✓ Subject created with ID: {created_subject.get('id')}")
+        print(f"  ✓ Subject created with ID: {created_subject.get('id')} (marked as supplier)")
         return created_subject
     
     def convert_extracted_to_expense(
