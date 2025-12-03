@@ -33,6 +33,7 @@ class FakturoidExpense(BaseModel):
     private_note: Optional[str] = None
     currency: str = "CZK"
     tags: Optional[List[str]] = None
+    vat_price_mode: str = "from_total_with_vat"  # VAT calculation mode
     
     # Payment info
     bank_account: Optional[str] = None
@@ -834,11 +835,26 @@ class FakturoidClient:
             if has_valid_prices:
                 # Use extracted line items
                 for item in invoice_data.line_items:
+                    # Get VAT rate from item, default to 0 if not specified
+                    vat_rate = item.get('vat_rate')
+                    if vat_rate is None:
+                        # Check if there's a VAT field (alternative name)
+                        vat_rate = item.get('vat')
+                    if vat_rate is None:
+                        # No VAT rate specified - set to 0
+                        vat_rate = 0
+                    else:
+                        # Ensure it's a number
+                        try:
+                            vat_rate = float(vat_rate)
+                        except (ValueError, TypeError):
+                            vat_rate = 0
+                    
                     lines.append({
                         'name': item.get('description', ''),
                         'quantity': str(item.get('quantity', 1)),
                         'unit_price': str(item.get('unit_price', 0)),
-                        'vat_rate': item.get('vat_rate', 21)  # Default Czech VAT
+                        'vat_rate': vat_rate
                     })
             else:
                 # Line items exist but without prices - use total as fallback
