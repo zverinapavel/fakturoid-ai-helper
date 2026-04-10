@@ -104,12 +104,10 @@ Supported formats: PDF, JPG, PNG, GIF, WEBP
 python process_invoices.py
 ```
 
-This will:
-1. List all invoices found
-2. Ask for confirmation
-3. Process each invoice
-4. Display extracted data for review
-5. Ask if you want to submit to Fakturoid
+By default this submits **all** invoices without asking for each file. It will:
+1. List invoices found, then process and submit them in batch.
+
+Use `python process_invoices.py --review` (or `--manual`) when you want to confirm each invoice (y/n/q) before it is sent.
 
 ### Option B: Python Script
 
@@ -173,27 +171,32 @@ Once everything works:
 2. **Customize settings** - Edit `config/settings.yaml`
 3. **Enable auto-submit** - Set `AUTO_SUBMIT=true` in `.env` (use with caution!)
 4. **Explore notebooks** - Learn how each component works
-5. **Read full docs** - See `docs/setup_guide.md`
+5. **Read full docs** - See `docs/README.md`
 
 ## Daily Usage
 
 ```bash
 # 1. Add new invoices to data/invoices/
-# 2. Run processor
+# 2. Run processor (batch submit by default)
 python process_invoices.py
 
-# 3. Review and approve
-# 4. Check results in Fakturoid
+# Optional: interactive confirmation per file
+# python process_invoices.py --review
+
+# 3. Check results in Fakturoid
 ```
 
 ## Quick Reference
 
 ```bash
-# Process with review (recommended)
+# Process all invoices automatically (default)
 python process_invoices.py
 
-# Process automatically (no review)
-python process_invoices.py --auto
+# Confirm each invoice before submit (interactive)
+python process_invoices.py --review
+
+# Same as --review
+python process_invoices.py --manual
 
 # Process max 10 files
 python process_invoices.py --max 10
@@ -213,8 +216,7 @@ python -c "from src.config import config; print(config.model_dump())"
 
 ## Help & Support
 
-- 📖 **Full Documentation**: `docs/setup_guide.md`
-- 🇨🇿 **Czech Guide**: `docs/czechREADME.md`
+- 📖 **Documentation**: `docs/README.md` (links to config and usage)
 - 📓 **Examples**: `example_usage.py`
 - 📔 **Notebooks**: `notebooks/` directory
 - 📝 **Logs**: `logs/processor.log`

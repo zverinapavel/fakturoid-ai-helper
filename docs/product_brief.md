@@ -1,2 +1,0 @@
-Potřebuji vytvořit řešení - asi v pythonu, AI agenta, s MCP servery, který načte soubory s fakturami v jednom adresáři, vyčte z nich potřebné údaje, a přez mcp server je vloží do systému fakturoid. Vysvětli mi prosím nejprve, jak na to.
-Chtěl bych vytvářet kousky řešení v python notebooks, používat správce uv, a inicializovat správu verzí git v tomto adresáři. Napiš mi prosím postup do nějakého souboru ve formátu markdown.

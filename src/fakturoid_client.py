@@ -62,8 +62,8 @@ class FakturoidClient:
     def __init__(
         self,
         config_or_client_id,
-        client_secret: str = None,
-        account_slug: str = None,
+        client_secret: Optional[str] = None,
+        account_slug: Optional[str] = None,
         base_url: str = "https://app.fakturoid.cz/api/v3",
         user_agent: str = "Fakturoid Invoice Processor (info@example.com)"
     ):
@@ -144,7 +144,11 @@ class FakturoidClient:
     
     def _ensure_token_valid(self):
         """Check if token is still valid and refresh if needed."""
-        if not self.access_token or datetime.now() >= self.token_expires_at:
+        if (
+            not self.access_token
+            or self.token_expires_at is None
+            or datetime.now() >= self.token_expires_at
+        ):
             self._refresh_access_token()
     
     def _get_url(self, endpoint: str) -> str:
@@ -242,13 +246,13 @@ class FakturoidClient:
         """
         self._ensure_token_valid()
         url = self._get_url("subjects/search.json")
-        params = {'query': query}
+        params: Dict[str, Any] = {'query': query}
         
         all_results = []
         page = 1
         
         while True:
-            params['page'] = page
+            params['page'] = page  # int is valid for requests query params
             
             response = self.session.get(url, params=params)
             response.raise_for_status()
@@ -783,7 +787,77 @@ class FakturoidClient:
         created_subject = self.create_subject(subject_data_dict)
         print(f"  ✓ Subject created with ID: {created_subject.get('id')} (marked as supplier)")
         return created_subject
-    
+
+    @staticmethod
+    def _parse_percent_to_vat_rate(raw: Any) -> Optional[int]:
+        """Parse a VAT percentage from extracted string or number."""
+        if raw is None or raw == "":
+            return None
+        try:
+            s = str(raw).strip().replace(",", ".").replace("%", "")
+            if s == "":
+                return None
+            v = float(s)
+            return int(round(v))
+        except (TypeError, ValueError):
+            return None
+
+    def _line_item_declared_vat_rate(self, item: Dict[str, Any]) -> Optional[int]:
+        """Read per-line VAT %% from common AI field names."""
+        for key in (
+            "vat_rate",
+            "tax_rate",
+            "tax_rate_percent",
+            "vat_percent",
+            "vat_percentage",
+            "tax_percentage",
+        ):
+            if key not in item:
+                continue
+            parsed = self._parse_percent_to_vat_rate(item.get(key))
+            if parsed is not None:
+                return max(0, min(100, parsed))
+        return None
+
+    def _invoice_implies_zero_vat(self, invoice_data: InvoiceData) -> bool:
+        """Heuristic: reverse charge, notes, or zero tax on the document."""
+        if getattr(invoice_data, "reverse_charge", None) is True:
+            return True
+        notes = f"{invoice_data.notes or ''} "
+        low = notes.lower()
+        needles = (
+            "reverse charge",
+            "přenesená daňová",
+            "prenesena danova",
+            "tax to be paid on reverse",
+            "reverse-charge",
+            "autoliquidation",
+        )
+        if any(n in low for n in needles):
+            return True
+        if invoice_data.tax_amount is not None and abs(float(invoice_data.tax_amount)) < 0.005:
+            return True
+        return False
+
+    def _default_vat_rate_when_line_unspecified(self, invoice_data: InvoiceData) -> int:
+        """
+        When AI omits vat_rate on a line, infer default for Fakturoid.
+        Do not assume 21%% for foreign / reverse-charge invoices.
+        """
+        if self._invoice_implies_zero_vat(invoice_data):
+            return 0
+        cur = (invoice_data.currency or "CZK").upper()
+        cz_domestic = cur == "CZK" and (
+            (invoice_data.supplier_ico and str(invoice_data.supplier_ico).strip())
+            or (
+                invoice_data.supplier_dic
+                and "cz" in str(invoice_data.supplier_dic).lower()
+            )
+        )
+        if cz_domestic:
+            return 21
+        return 0
+
     def convert_extracted_to_expense(
         self,
         invoice_data: InvoiceData,
@@ -834,11 +908,18 @@ class FakturoidClient:
             if has_valid_prices:
                 # Use extracted line items
                 for item in invoice_data.line_items:
+                    declared = self._line_item_declared_vat_rate(item)
+                    vat_rate = (
+                        declared
+                        if declared is not None
+                        else self._default_vat_rate_when_line_unspecified(invoice_data)
+                    )
+                    desc = item.get('description') or item.get('name') or ''
                     lines.append({
-                        'name': item.get('description', ''),
+                        'name': desc,
                         'quantity': str(item.get('quantity', 1)),
                         'unit_price': str(item.get('unit_price', 0)),
-                        'vat_rate': item.get('vat_rate', 21)  # Default Czech VAT
+                        'vat_rate': vat_rate,
                     })
             else:
                 # Line items exist but without prices - use total as fallback
@@ -853,11 +934,16 @@ class FakturoidClient:
             
             # Determine VAT rate based on whether tax is specified
             if invoice_data.tax_amount and invoice_data.tax_amount > 0:
-                # Tax amount is specified - calculate VAT rate
                 tax = float(invoice_data.tax_amount)
                 price_without_vat = total - tax
-                # Calculate VAT rate as percentage
-                vat_rate = round((tax / price_without_vat) * 100) if price_without_vat > 0 else 21
+                if price_without_vat > 0:
+                    vat_rate = max(0, min(100, round((tax / price_without_vat) * 100)))
+                elif self._invoice_implies_zero_vat(invoice_data):
+                    vat_rate = 0
+                    price_without_vat = total
+                else:
+                    vat_rate = self._default_vat_rate_when_line_unspecified(invoice_data)
+                    price_without_vat = total
             else:
                 # No tax specified - treat total as price WITHOUT VAT, VAT rate = 0%
                 price_without_vat = total

@@ -49,7 +49,7 @@ FAKTUROID_ACCOUNT_SLUG=your_account_slug
 
 ```bash
 # Place invoices in data/invoices/
-# Then run:
+# Then run (submits all without per-invoice prompts; use --review to confirm each):
 python process_invoices.py
 ```
 
@@ -85,18 +85,16 @@ fakturoid/
 ├── config/
 │   └── settings.yaml      # Application settings
 └── docs/
-    └── setup_guide.md     # Detailed setup guide
+    ├── README.md           # Index (Czech)
+    ├── CONFIGURATION.md    # .env and settings
+    └── USAGE.md            # CLI and behavior
 ```
 
 ## Documentation
 
-See [`docs/setup_guide.md`](docs/setup_guide.md) for comprehensive documentation including:
-
-- Detailed installation instructions
-- Configuration options
-- MCP server setup
-- Usage examples
-- Troubleshooting guide
+- **[`docs/README.md`](docs/README.md)** — kde co najdeš (česky)  
+- **[`docs/CONFIGURATION.md`](docs/CONFIGURATION.md)** — instalace, `.env`, `settings.yaml`  
+- **[`docs/USAGE.md`](docs/USAGE.md)** — spuštění, režimy, pojmenování souborů
 
 ## Development
 
@@ -206,7 +204,7 @@ print(client.test_connection())
 - Check API key is valid
 - Review logs in `logs/processor.log`
 
-See [`docs/setup_guide.md`](docs/setup_guide.md) for detailed troubleshooting.
+See [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) and [`docs/USAGE.md`](docs/USAGE.md) if something fails.
 
 ## License
 
@@ -232,7 +230,7 @@ Contributions welcome! Please ensure:
 ## Support
 
 For issues and questions:
-1. Check `docs/setup_guide.md`
+1. Read [`docs/README.md`](docs/README.md) and the linked pages
 2. Review example notebooks
 3. Check logs in `logs/processor.log`
 

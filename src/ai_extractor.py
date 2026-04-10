@@ -52,6 +52,10 @@ class InvoiceData(BaseModel):
     # Other fields
     currency: Optional[str] = Field("CZK", description="Currency code")
     tax_amount: Optional[float] = Field(None, description="VAT/tax amount")
+    reverse_charge: Optional[bool] = Field(
+        None,
+        description="True if invoice uses reverse charge / přenesená daňová povinnost / tax to be paid on reverse charge basis",
+    )
     line_items: Optional[list] = Field(None, description="List of invoice line items")
     notes: Optional[str] = Field(None, description="Additional notes or description")
     
@@ -114,8 +118,14 @@ Supplier identification numbers:
 
 Other fields:
 - currency: Currency code in ISO format (CZK, EUR, USD, GBP - NOT "Kc" or "Kč"!)
-- tax_amount: VAT/tax amount (as a number)
-- line_items: Array of items with description, quantity, unit_price, total
+- tax_amount: Total VAT/tax amount on the invoice (as a number). Use 0 if no VAT or exempt.
+- reverse_charge: true if the invoice text indicates reverse charge, "tax to be paid on reverse charge basis", OSS B2B, or 0% VAT with supplier VAT ID (common for foreign SaaS). false if standard Czech domestic VAT applies.
+- line_items: Array of line objects. Each line MUST include:
+  - description (or name): product/service text from the invoice table row
+  - quantity: number (default 1)
+  - unit_price: price per unit before local VAT (number)
+  - total: optional line total
+  - vat_rate: INTEGER percent for THIS line only — use values like 0, 10, 15, 21 (Czech rates). Read from columns named Tax, VAT, Rate, %, DPH, or similar. If the row shows 0%, 0, exempt, or reverse charge for that line, set vat_rate to 0. Do NOT assume 21% for foreign invoices.
 - notes: Any additional notes or payment instructions
 
 Return ONLY valid JSON in this exact format:
@@ -468,6 +478,11 @@ VALIDATION CHECKLIST:
 4. **Currency Check**:
    - Is currency a valid ISO code (CZK, EUR, USD, not "Kc" or "Kč")?
 
+5. **VAT / line_items**:
+   - For EACH line_item, does vat_rate match the invoice table (Tax / VAT / % column)? Use 0 for reverse charge, exempt, or 0% rows.
+   - Set reverse_charge: true when the document states reverse charge / přenesená daňová povinnost / similar.
+   - If tax_amount is 0 and the document shows no VAT, line vat_rate values should be 0, not 21.
+
 If you find issues, return corrected JSON with the same structure.
 If everything is correct, return the original JSON unchanged.
 
@@ -475,6 +490,7 @@ IMPORTANT RULES:
 - For line_items: Only include actual products/services being sold
 - If line_items look suspicious (like tax notices), remove them and leave line_items empty
 - Preserve all other fields exactly as extracted
+- Never default line vat_rate to 21% without checking the document; foreign B2B invoices are often 0%
 
 Return ONLY the corrected JSON, no explanations:"""
 

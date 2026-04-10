@@ -5,6 +5,12 @@ All notable changes to the Fakturoid Invoice Processor will be documented in thi
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+- Documentation in `docs/` reduced to three files: `README.md` (index), `CONFIGURATION.md`, `USAGE.md`; older long guides removed.
+- CLI `process_invoices.py`: default mode is now automatic batch submit; use `--review` / `-r` or `--manual` for per-invoice confirmation (replaces previous default and `--auto`).
+
 ## [0.1.0] - 2025-10-07
 
 ### Added
@@ -26,8 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Example usage script (`example_usage.py`)
 - Comprehensive documentation:
   - README.md (English)
-  - docs/setup_guide.md (detailed English guide)
-  - docs/czechREADME.md (Czech guide)
+  - docs/ (later simplified; see current tree)
   - CHANGELOG.md
 - Configuration files:
   - pyproject.toml for UV package management

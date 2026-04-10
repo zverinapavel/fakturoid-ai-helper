@@ -9,8 +9,10 @@ Usage:
     python process_invoices.py [options]
 
 Modes:
-    --manual        Manual mode: review and confirm each invoice (default)
-    --auto          Automatic mode: submit all invoices without review
+    (default)       Submit all invoices without per-invoice confirmation
+    --review, -r    Confirm each invoice interactively before submission
+    --manual        Same as --review
+    --auto          Explicit automatic mode (same as default)
     --extract-only  Extract data only, don't submit to Fakturoid
 
 Options:
@@ -21,13 +23,16 @@ Options:
 import sys
 import argparse
 from pathlib import Path
+from typing import Optional
 
-# Add src to path
-sys.path.insert(0, str(Path(__file__).parent / 'src'))
+# Ensure project root is importable (for `from src...` when run as a script)
+_ROOT = Path(__file__).resolve().parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
 
-from agent import InvoiceProcessingAgent
-from config import config
-from ai_extractor import InvoiceData
+from src.agent import InvoiceProcessingAgent
+from src.config import config
+from src.ai_extractor import InvoiceData
 
 
 def display_invoice_details(data: dict):
@@ -75,8 +80,8 @@ def display_invoice_details(data: dict):
     print("="*60)
 
 
-def process_manual_mode(agent: InvoiceProcessingAgent, max_files: int = None) -> list:
-    """Process invoices in manual mode with confirmation for each.
+def process_review_mode(agent: InvoiceProcessingAgent, max_files: Optional[int] = None) -> list:
+    """Process invoices with interactive confirmation for each file.
     
     Args:
         agent: Invoice processing agent
@@ -161,6 +166,9 @@ def process_manual_mode(agent: InvoiceProcessingAgent, max_files: int = None) ->
                 'error': str(e)
             })
     
+    if hasattr(agent, "ai_extractor") and hasattr(agent.ai_extractor, "print_usage_summary"):
+        agent.ai_extractor.print_usage_summary()
+
     return results
 
 
@@ -172,22 +180,28 @@ def main():
         epilog=__doc__
     )
     
-    # Processing modes (mutually exclusive)
+    # Processing modes (mutually exclusive; default is automatic batch submit)
     mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
+        '--review',
+        '-r',
+        action='store_true',
+        help='Ask for confirmation on each invoice before submitting to Fakturoid',
+    )
     mode_group.add_argument(
         '--manual',
         action='store_true',
-        help='Manual mode: review and confirm each invoice before submission (default)'
+        help='Same as --review (interactive confirmation per invoice)',
     )
     mode_group.add_argument(
         '--auto',
         action='store_true',
-        help='Automatic mode: submit all invoices without review'
+        help='Submit all invoices without review (default if no mode flag is given)',
     )
     mode_group.add_argument(
         '--extract-only',
         action='store_true',
-        help='Extract data only, do not submit to Fakturoid'
+        help='Extract data only, do not submit to Fakturoid',
     )
     
     parser.add_argument(
@@ -207,23 +221,24 @@ def main():
     
     args = parser.parse_args()
     
-    # Determine mode
-    if args.auto:
-        mode = 'auto'
-    elif args.extract_only:
+    # Determine mode (default: automatic batch processing)
+    if args.extract_only:
         mode = 'extract-only'
+    elif args.review or args.manual:
+        mode = 'review'
     else:
-        mode = 'manual'  # Default
+        mode = 'auto'  # Default when no mode flag (also when --auto)
     
-    # Display configuration
-    print("="*60)
-    print("FAKTUROID INVOICE PROCESSOR")
-    print("="*60)
-    print(f"Mode: {mode.upper()}")
-    print(f"Invoices directory: {args.invoices_dir or config.directories.invoices}")
-    print(f"Max files: {args.max or 'unlimited'}")
-    print(f"AI Model: {config.ai.model}")
-    print("="*60 + "\n")
+    # Display configuration (flush so banner appears before logging from libraries)
+    print("=" * 60, flush=True)
+    print("FAKTUROID INVOICE PROCESSOR", flush=True)
+    print("=" * 60, flush=True)
+    mode_label = {'auto': 'AUTO (batch submit)', 'review': 'REVIEW (interactive)', 'extract-only': 'EXTRACT-ONLY'}.get(mode, mode.upper())
+    print(f"Mode: {mode_label}", flush=True)
+    print(f"Invoices directory: {args.invoices_dir or config.directories.invoices}", flush=True)
+    print(f"Max files: {args.max or 'unlimited'}", flush=True)
+    print(f"AI Model: {config.ai.model}", flush=True)
+    print("=" * 60 + "\n", flush=True)
     
     # Initialize agent
     agent = InvoiceProcessingAgent(
@@ -259,33 +274,23 @@ def main():
     
     print()
     
-    # Confirm processing based on mode
+    # Run selected mode
     if mode == 'auto':
-        print("⚠️  AUTO-SUBMIT MODE - Invoices will be submitted without review!")
-        response = input("Continue? (y/n): ")
-        if response.lower() != 'y':
-            print("Processing cancelled.")
-            return 0
-        print("\nProcessing invoices...\n")
+        print("⚙️  Submitting all invoices without per-invoice confirmation.\n")
         results = agent.process_batch(review=False, max_files=args.max)
-        
+
     elif mode == 'extract-only':
-        print("📋 EXTRACT-ONLY MODE - Data will be extracted but not submitted")
+        print("📋 EXTRACT-ONLY — data will be extracted but not submitted")
         response = input("Continue? (y/n): ")
         if response.lower() != 'y':
             print("Processing cancelled.")
             return 0
         print("\nExtracting invoice data...\n")
         results = agent.process_batch(review=True, max_files=args.max)
-        
-    else:  # manual mode
-        print("🔍 MANUAL MODE - You will review and confirm each invoice")
-        response = input("Continue? (y/n): ")
-        if response.lower() != 'y':
-            print("Processing cancelled.")
-            return 0
-        print("\nProcessing invoices...\n")
-        results = process_manual_mode(agent, args.max)
+
+    else:  # review (interactive)
+        print("🔍 REVIEW MODE — confirm each invoice before it is sent to Fakturoid\n")
+        results = process_review_mode(agent, args.max)
     
     # Display results
     print("\n" + "="*60)
@@ -340,11 +345,8 @@ def main():
     print("="*60)
     print(f"SUMMARY: {len(results)} total | {submitted} submitted | {skipped} skipped | {extracted} extracted | {errors} errors")
     print("="*60)
-    
-    # Display AI usage summary
-    if hasattr(agent, 'ai_extractor') and hasattr(agent.ai_extractor, 'print_usage_summary'):
-        agent.ai_extractor.print_usage_summary()
-    
+    # AI usage summary: process_batch / extract-only already printed it; review mode prints inside process_review_mode
+
     if mode == 'extract-only':
         print(f"\n📋 {len(results)} invoice(s) extracted")
         print("   No invoices were submitted (extract-only mode)")

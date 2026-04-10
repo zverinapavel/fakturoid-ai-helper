@@ -36,10 +36,10 @@ fakturoid/
 ├── config/
 │   └── settings.yaml            # Application configuration
 │
-├── docs/                        # Documentation (4 files)
-│   ├── setup_guide.md          # Comprehensive English guide
-│   ├── czechREADME.md          # Czech language guide
-│   └── product_brief.md        # Original requirements
+├── docs/                        # Short docs (index + config + usage)
+│   ├── README.md
+│   ├── CONFIGURATION.md
+│   └── USAGE.md
 │
 ├── logs/                        # Application logs
 │
@@ -132,10 +132,9 @@ fakturoid/
 
 1. **README.md** - Main project documentation
 2. **QUICKSTART.md** - 5-minute quick start guide
-3. **docs/setup_guide.md** - Comprehensive setup and usage guide
-4. **docs/czechREADME.md** - Czech language documentation
-5. **CHANGELOG.md** - Version history
-6. **Example code** in notebooks and scripts
+3. **docs/** - `README.md` (index), `CONFIGURATION.md`, `USAGE.md`
+4. **CHANGELOG.md** - Version history
+5. **Example code** in notebooks and scripts
 
 ### ✅ Version Control
 
@@ -170,7 +169,7 @@ fakturoid/
 2. Run processor  → python process_invoices.py
 3. AI extraction  → Claude reads invoice data
 4. Validation     → Check required fields
-5. Review         → Manual approval (optional)
+5. Review         → Optional if CLI uses --review; default CLI submits in batch
 6. Submit         → Send to Fakturoid via API
 7. Archive        → Move to data/processed/
 8. Log            → Record in logs/processor.log
@@ -194,8 +193,8 @@ results = agent.process_batch(review=False)
 
 ### Mode 3: CLI
 ```bash
-python process_invoices.py              # With review
-python process_invoices.py --auto       # Automatic
+python process_invoices.py              # Automatic batch submit (default)
+python process_invoices.py --review     # Confirm each invoice before submit
 python process_invoices.py --max 10     # Limit files
 ```
 
@@ -323,8 +322,7 @@ Each module can be tested independently:
 ## Support Resources
 
 - **Quick Start**: `QUICKSTART.md`
-- **Full Guide**: `docs/setup_guide.md`
-- **Czech Guide**: `docs/czechREADME.md`
+- **Docs**: `docs/README.md` → configuration and usage
 - **Examples**: `example_usage.py`
 - **Notebooks**: `notebooks/` directory
 - **Logs**: `logs/processor.log`
