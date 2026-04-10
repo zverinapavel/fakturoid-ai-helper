@@ -39,3 +39,8 @@ dev-dependencies = [
     "ruff>=0.1.0",
 ]
 
+# Help Pylance/Pyright resolve third-party packages from the uv virtualenv
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+

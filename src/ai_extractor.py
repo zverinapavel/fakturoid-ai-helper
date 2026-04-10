@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 from pydantic import BaseModel, Field
 from datetime import date
 
@@ -62,7 +62,10 @@ class InvoiceData(BaseModel):
 
 class AIInvoiceExtractor:
     """Extract invoice data using AI vision models."""
-    
+
+    # Anthropic / OpenAI SDK clients have incompatible static types; use dynamic API at runtime.
+    client: Any
+
     # Supported providers and their default models
     PROVIDER_MODELS = {
         'anthropic': 'claude-sonnet-4-5-20250929',
@@ -320,8 +323,9 @@ Important:
                 operation='extract_image'
             )
         
-        return response.choices[0].message.content
-    
+        text = response.choices[0].message.content
+        return text if text is not None else ""
+
     def extract_from_pdf(
         self,
         pdf_base64: str,
@@ -580,8 +584,9 @@ Return ONLY the corrected JSON, no explanations:"""
                 operation='validation'
             )
         
-        return response.choices[0].message.content
-    
+        text = response.choices[0].message.content
+        return text if text is not None else ""
+
     def _track_usage(self, input_tokens: int, output_tokens: int, operation: str = 'extraction'):
         """Track API usage and costs.
         

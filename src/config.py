@@ -181,7 +181,7 @@ class Config(BaseModel):
             raise ValueError("GROQ_API_KEY not set in environment")
         return key
     
-    def get_api_key(self, provider: str = None) -> str:
+    def get_api_key(self, provider: Optional[str] = None) -> str:
         """Get API key for the configured or specified provider."""
         provider = provider or self.ai.provider
         
