@@ -51,7 +51,7 @@ Výstup:
 📊 AI USAGE SUMMARY
 ============================================================
 Provider: anthropic
-Model: claude-3-5-sonnet-20241022
+Model: claude-sonnet-4-5-20250929
 Total Requests: 4
 Total Input Tokens: 11,230
 Total Output Tokens: 1,650
@@ -76,7 +76,7 @@ Výstup:
         {
             'timestamp': '2025-01-15T14:30:45',
             'operation': 'extract_pdf',
-            'model': 'claude-3-5-sonnet-20241022',
+            'model': 'claude-sonnet-4-5-20250929',
             'provider': 'anthropic',
             'input_tokens': 2847,
             'output_tokens': 425,
@@ -92,7 +92,8 @@ Výstup:
 ### Anthropic Claude
 | Model | Input | Output |
 |-------|-------|--------|
-| claude-3-5-sonnet-20241022 | $3.00 | $15.00 |
+| claude-sonnet-4-5-20250929 | $3.00 | $15.00 |
+| claude-3-5-sonnet-20241022 | $3.00 | $15.00 | (Deprecated - bude odstaven 19. února 2026) |
 | claude-3-opus-20240229 | $15.00 | $75.00 |
 
 ### OpenAI
@@ -141,7 +142,7 @@ CELKEM:                        $0.0270 (~0.65 Kč)
 # DRAHÉ ale nejpřesnější
 ai:
   provider: "anthropic"
-  model: "claude-3-5-sonnet-20241022"  # $3/$15 per 1M tokens
+  model: "claude-sonnet-4-5-20250929"  # $3/$15 per 1M tokens
 
 # LEVNĚJŠÍ alternativy
 ai:
@@ -253,7 +254,8 @@ Ceny jsou přibližné a aktuální k lednu 2025. Pro nejnovější ceny:
 Upravte v `src/ai_extractor.py`:
 ```python
 MODEL_COSTS = {
-    'claude-3-5-sonnet-20241022': {'input': 3.0, 'output': 15.0},
+    'claude-sonnet-4-5-20250929': {'input': 3.0, 'output': 15.0},
+    'claude-3-5-sonnet-20241022': {'input': 3.0, 'output': 15.0},  # Deprecated
     # ... upravte podle aktuálních cen
 }
 ```
@@ -290,7 +292,7 @@ MODEL_COSTS = {
 if invoice_is_simple:
     model = "gpt-4o-mini"  # $0.15/$0.60
 else:
-    model = "claude-3-5-sonnet"  # $3/$15
+    model = "claude-sonnet-4-5-20250929"  # $3/$15
 ```
 
 ### Cache často používaných prompt

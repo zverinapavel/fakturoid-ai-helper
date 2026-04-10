@@ -24,7 +24,7 @@ Průvodce pro používání různých AI modelů pro extrakci dat z faktur.
 ```yaml
 ai:
   provider: "anthropic"  # Změňte na: anthropic, openai, deepseek, groq, ollama
-  model: "claude-3-5-sonnet-20241022"
+  model: "claude-sonnet-4-5-20250929"
   temperature: 0.0
   max_tokens: 4096
   
@@ -55,7 +55,8 @@ OLLAMA_BASE_URL=http://localhost:11434
 ### 1️⃣ Anthropic Claude (Doporučeno)
 
 **Modely:**
-- `claude-3-5-sonnet-20241022` - Nejlepší poměr cena/výkon
+- `claude-sonnet-4-5-20250929` - Nejlepší poměr cena/výkon (doporučeno)
+- `claude-3-5-sonnet-20241022` - Deprecated (bude odstaven 19. února 2026)
 - `claude-3-opus-20240229` - Nejvyšší kvalita
 - `claude-3-haiku-20240307` - Nejrychlejší, nejlevnější
 
@@ -224,7 +225,7 @@ from src.config import Config
 
 # Test různých providerů
 providers = [
-    ('anthropic', 'claude-3-5-sonnet-20241022'),
+    ('anthropic', 'claude-sonnet-4-5-20250929'),
     ('openai', 'gpt-4o'),
     ('deepseek', 'deepseek-chat'),
 ]
@@ -245,7 +246,7 @@ for provider, model in providers:
 ## 💡 Doporučení pro výběr
 
 ### Začínáte? 
-→ **Anthropic Claude** (claude-3-5-sonnet)
+→ **Anthropic Claude** (claude-sonnet-4-5-20250929)
 - Nejlepší kvalita
 - Podporuje PDF
 - Dobrý poměr cena/výkon
@@ -276,7 +277,7 @@ Pro typickou fakturu (~200kB obrázek nebo 5-page PDF):
 
 | Provider | Cena za fakturu | Cena za 1000 faktur |
 |----------|----------------|---------------------|
-| Anthropic Claude 3.5 Sonnet | $0.015 | $15 |
+| Anthropic Claude Sonnet 4.5 | $3.00 | $15.00 |
 | OpenAI GPT-4o | $0.025 | $25 |
 | OpenAI GPT-4o-mini | $0.002 | $2 |
 | DeepSeek | $0.0002 | $0.20 |

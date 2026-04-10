@@ -5,7 +5,7 @@ AI-powered invoice processing agent that automatically extracts data from PDF an
 ## Features
 
 - 📄 **Multi-format Support**: Process PDFs and images (JPG, PNG, GIF, WEBP)
-- 🤖 **AI-Powered Extraction**: Uses Claude 3.5 Sonnet for accurate data extraction
+- 🤖 **AI-Powered Extraction**: Uses Claude Sonnet 4.5 for accurate data extraction
 - ✅ **Smart Validation**: Validates extracted data before submission
 - 🔄 **Flexible Workflows**: Manual review, automatic submission, or hybrid modes
 - 📊 **Batch Processing**: Process multiple invoices efficiently

@@ -33,7 +33,7 @@ class AIConfig(BaseModel):
         default_factory=lambda: os.getenv("AI_PROVIDER", "anthropic")
     )
     model: str = Field(
-        default_factory=lambda: os.getenv("AI_MODEL", "claude-3-5-sonnet-20241022")
+        default_factory=lambda: os.getenv("AI_MODEL", "claude-sonnet-4-5-20250929")
     )
     temperature: float = 0.0
     max_tokens: int = 4096

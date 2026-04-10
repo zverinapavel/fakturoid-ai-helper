@@ -57,7 +57,7 @@ Byl úspěšně implementován kompletní AI agent pro zpracování faktur podle
 ### Zpracování faktur
 - ✅ PDF dokumenty (nativní i naskenované)
 - ✅ Obrázky (JPG, PNG, GIF, WEBP)
-- ✅ AI extrakce pomocí Claude 3.5 Sonnet
+- ✅ AI extrakce pomocí Claude Sonnet 4.5
 - ✅ Strukturovaná data (Pydantic)
 - ✅ Validace povinných polí
 
@@ -104,7 +104,7 @@ Byl úspěšně implementován kompletní AI agent pro zpracování faktur podle
 ## 🛠️ Technologie
 
 - **Python 3.11+** s UV package managerem
-- **Anthropic Claude 3.5 Sonnet** pro AI extrakci
+- **Anthropic Claude Sonnet 4.5** pro AI extrakci
 - **Fakturoid API v3** pro odeslání faktur
 - **Pydantic** pro validaci dat
 - **Jupyter** pro vývoj v noteboocích

@@ -62,7 +62,7 @@ directories:
 
 1. **Environment variables** (`AI_PROVIDER`, `AI_MODEL`)
 2. **YAML config** (`ai.provider`, `ai.model`)
-3. **Defaults** (`anthropic`, `claude-3-5-sonnet-20241022`)
+3. **Defaults** (`anthropic`, `claude-sonnet-4-5-20250929`)
 
 ### API Keys:
 
@@ -80,7 +80,7 @@ API klíče **se nikdy neukládají** do YAML (bezpečnost!).
 # settings.yaml
 ai:
   provider: "anthropic"
-  model: "claude-3-5-sonnet-20241022"
+  model: "claude-sonnet-4-5-20250929"
 ```
 
 ```bash
@@ -179,7 +179,7 @@ URL a timeout lze nastavit v YAML.
 | processed | - | `directories.processed` | `data/processed` | Pouze YAML, převede se na absolutní |
 | **AI** | | | | |
 | provider | `AI_PROVIDER` | `ai.provider` | `anthropic` | |
-| model | `AI_MODEL` | `ai.model` | `claude-3.5-sonnet...` | |
+| model | `AI_MODEL` | `ai.model` | `claude-sonnet-4-5-20250929` | |
 | **API Keys** | | | | |
 | Anthropic | `ANTHROPIC_API_KEY` | - | - | Required for Anthropic |
 | OpenAI | `OPENAI_API_KEY` | - | - | Required for OpenAI |
@@ -237,7 +237,7 @@ FAKTUROID_ACCOUNT_SLUG=prod-account
 
 # Override YAML settings
 AI_PROVIDER=anthropic
-AI_MODEL=claude-3-5-sonnet-20241022
+AI_MODEL=claude-sonnet-4-5-20250929
 PROCESSING_MODE=auto
 AUTO_SUBMIT=true
 INVOICES_DIR=/production/invoices

@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Core modules:
   - `config.py` - Configuration management with YAML and environment variables
   - `document_processor.py` - PDF and image invoice loading
-  - `ai_extractor.py` - AI-powered data extraction using Claude 3.5 Sonnet
+  - `ai_extractor.py` - AI-powered data extraction using Claude Sonnet 4.5
   - `fakturoid_client.py` - Fakturoid API client integration
   - `agent.py` - Main orchestration agent
 - Jupyter notebooks for incremental development:
@@ -45,7 +45,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Features
 - Multi-format invoice support (PDF, JPG, PNG, GIF, WEBP)
-- AI-powered data extraction with Claude 3.5 Sonnet
+- AI-powered data extraction with Claude Sonnet 4.5
 - Configurable validation of required and optional fields
 - Manual review and automatic submission modes
 - Batch processing capabilities

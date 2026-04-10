@@ -65,7 +65,7 @@ class AIInvoiceExtractor:
     
     # Supported providers and their default models
     PROVIDER_MODELS = {
-        'anthropic': 'claude-3-5-sonnet-20241022',
+        'anthropic': 'claude-sonnet-4-5-20250929',
         'openai': 'gpt-4o',
         'deepseek': 'deepseek-chat',
         'groq': 'llama-3.2-90b-vision-preview',
@@ -74,7 +74,8 @@ class AIInvoiceExtractor:
     
     # Approximate costs per 1M tokens (input/output) in USD
     MODEL_COSTS = {
-        'claude-3-5-sonnet-20241022': {'input': 3.0, 'output': 15.0},
+        'claude-sonnet-4-5-20250929': {'input': 3.0, 'output': 15.0},
+        'claude-3-5-sonnet-20241022': {'input': 3.0, 'output': 15.0},  # Deprecated
         'claude-3-opus-20240229': {'input': 15.0, 'output': 75.0},
         'gpt-4o': {'input': 2.5, 'output': 10.0},
         'gpt-4o-mini': {'input': 0.15, 'output': 0.6},
@@ -136,7 +137,7 @@ Important:
 - If a field is not visible or unclear, omit it from the JSON
 - Be precise and only extract data that you can clearly see in the document"""
     
-    def __init__(self, config_or_api_key, model: str = "claude-3-5-sonnet-20241022", provider: str = "anthropic"):
+    def __init__(self, config_or_api_key, model: str = "claude-sonnet-4-5-20250929", provider: str = "anthropic"):
         """Initialize AI extractor.
         
         Args:

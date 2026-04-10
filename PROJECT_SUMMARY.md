@@ -62,7 +62,7 @@ fakturoid/
    - Base64 encoding for API transmission
 
 2. **AI-Powered Extraction**
-   - Claude 3.5 Sonnet integration
+   - Claude Sonnet 4.5 integration
    - Structured data extraction
    - Pydantic validation
    - Support for required and optional fields
@@ -209,7 +209,7 @@ processing:
   auto_submit: false
 
 ai:
-  model: "claude-3-5-sonnet-20241022"
+  model: "claude-sonnet-4-5-20250929"
 
 extraction:
   required_fields:
