@@ -189,7 +189,123 @@ class FakturoidClient:
         response = self.session.get(url)
         response.raise_for_status()
         return response.json()
-    
+
+    def _paginate_collection(
+        self,
+        endpoint: str,
+        extra_params: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
+        """Fetch all pages (40 items per page) for a collection endpoint."""
+        self._ensure_token_valid()
+        url = self._get_url(endpoint)
+        all_items: List[Dict[str, Any]] = []
+        page = 1
+        while True:
+            params: Dict[str, Any] = dict(extra_params or {})
+            params["page"] = page
+            response = self.session.get(url, params=params)
+            response.raise_for_status()
+            batch = response.json()
+            if not batch:
+                break
+            all_items.extend(batch)
+            if len(batch) < 40:
+                break
+            page += 1
+        return all_items
+
+    def list_todos(self, since: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List all todos (paginated)."""
+        extra: Dict[str, Any] = {}
+        if since:
+            extra["since"] = since
+        return self._paginate_collection("todos.json", extra)
+
+    def list_expenses(
+        self,
+        status: Optional[str] = None,
+        since: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """List expenses with optional status filter (e.g. open, overdue, paid)."""
+        extra: Dict[str, Any] = {}
+        if status:
+            extra["status"] = status
+        if since:
+            extra["since"] = since
+        return self._paginate_collection("expenses.json", extra)
+
+    def list_invoices(
+        self,
+        status: Optional[str] = None,
+        since: Optional[str] = None,
+        document_type: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """List invoices with optional status filter (e.g. open, overdue, paid)."""
+        extra: Dict[str, Any] = {}
+        if status:
+            extra["status"] = status
+        if since:
+            extra["since"] = since
+        if document_type:
+            extra["document_type"] = document_type
+        return self._paginate_collection("invoices.json", extra)
+
+    def list_unpaid_expenses(self) -> List[Dict[str, Any]]:
+        """Return expenses that are not paid (open + overdue), deduplicated by id."""
+        by_id: Dict[int, Dict[str, Any]] = {}
+        for st in ("open", "overdue"):
+            for e in self.list_expenses(status=st):
+                by_id[e["id"]] = e
+        return list(by_id.values())
+
+    def list_unpaid_invoices(self) -> List[Dict[str, Any]]:
+        """Return invoices that are not paid (open + sent + overdue), deduplicated by id."""
+        by_id: Dict[int, Dict[str, Any]] = {}
+        for st in ("open", "sent", "overdue"):
+            for inv in self.list_invoices(status=st):
+                by_id[inv["id"]] = inv
+        return list(by_id.values())
+
+    def create_expense_payment(
+        self,
+        expense_id: int,
+        payment: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Create a payment on an expense (marks paid / partial).
+
+        See: https://www.fakturoid.cz/api/v3/expense-payments
+        """
+        self._ensure_token_valid()
+        url = self._get_url(f"expenses/{expense_id}/payments.json")
+        response = self.session.post(url, json=payment)
+        response.raise_for_status()
+        return response.json()
+
+    def create_invoice_payment(
+        self,
+        invoice_id: int,
+        payment: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Create a payment on an invoice (marks paid / partial).
+
+        See: https://www.fakturoid.cz/api/v3/invoice-payments
+        """
+        self._ensure_token_valid()
+        url = self._get_url(f"invoices/{invoice_id}/payments.json")
+        response = self.session.post(url, json=payment)
+        response.raise_for_status()
+        return response.json()
+
+    def toggle_todo_completion(self, todo_id: int) -> Dict[str, Any]:
+        """Mark a todo as completed (e.g. after pairing a payment)."""
+        self._ensure_token_valid()
+        url = self._get_url(f"todos/{todo_id}/toggle_completion.json")
+        response = self.session.post(url)
+        response.raise_for_status()
+        if response.content:
+            return response.json()
+        return {}
+
     def list_subjects(self, since: Optional[str] = None) -> List[Dict[str, Any]]:
         """List all subjects (customers/suppliers).
         
