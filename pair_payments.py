@@ -851,8 +851,13 @@ def main() -> int:
         "--output-csv",
         nargs="?",
         const="logs/pairing_report.csv",
-        default=None,
-        help="Optional path to write CSV report. If used without a value, defaults to logs/pairing_report.csv",
+        default="logs/pairing_report.csv",
+        help="Path to write CSV report (default: logs/pairing_report.csv). If used without a value, uses the default path.",
+    )
+    parser.add_argument(
+        "--no-output-csv",
+        action="store_true",
+        help="Do not write CSV report file.",
     )
     parser.add_argument(
         "--since",
@@ -920,6 +925,8 @@ def main() -> int:
     else:
         print("ℹ️  DRY-RUN / GUIDED: no payments will be created unless you confirm.\n")
 
+    output_csv = None if args.no_output_csv else args.output_csv
+
     # Default since: today 00:00 local time (ISO). Fakturoid expects ISO 8601 datetime.
     since = args.since
     if args.since_all:
@@ -940,7 +947,7 @@ def main() -> int:
             fx_tolerance_pct=fx_tol_pct,
             confirm_all=False,
             interactive=False,
-            output_csv=args.output_csv,
+            output_csv=output_csv,
         )
         if rc != 0:
             return rc
@@ -963,7 +970,7 @@ def main() -> int:
                 fx_tolerance_pct=fx_tol_pct,
                 confirm_all=True,
                 interactive=False,
-                output_csv=args.output_csv,
+                output_csv=output_csv,
             )
 
         try:
@@ -983,7 +990,7 @@ def main() -> int:
                 fx_tolerance_pct=fx_tol_pct,
                 confirm_all=False,
                 interactive=True,
-                output_csv=args.output_csv,
+                output_csv=output_csv,
             )
         print("OK, nothing applied.")
         return 0
@@ -999,7 +1006,7 @@ def main() -> int:
         fx_tolerance_pct=fx_tol_pct,
         confirm_all=args.confirm_all,
         interactive=args.interactive,
-        output_csv=args.output_csv,
+        output_csv=output_csv,
     )
 
 
