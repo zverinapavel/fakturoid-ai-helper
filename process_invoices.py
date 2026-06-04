@@ -33,6 +33,7 @@ if str(_ROOT) not in sys.path:
 from src.agent import InvoiceProcessingAgent
 from src.config import config
 from src.ai_extractor import InvoiceData
+from src.fakturoid_client import FakturoidClient
 
 
 def display_invoice_details(data: dict):
@@ -80,6 +81,13 @@ def display_invoice_details(data: dict):
     print("="*60)
 
 
+def display_amount_validation(client: FakturoidClient, invoice_data: InvoiceData) -> bool:
+    """Run and print Fakturoid amount check. Returns True if amounts match."""
+    validation = client.validate_expense_amounts(invoice_data)
+    print(f"\n{client.format_amount_validation_message(validation)}")
+    return bool(validation.get("ok"))
+
+
 def process_review_mode(agent: InvoiceProcessingAgent, max_files: Optional[int] = None) -> list:
     """Process invoices with interactive confirmation for each file.
     
@@ -109,6 +117,11 @@ def process_review_mode(agent: InvoiceProcessingAgent, max_files: Optional[int] 
             
             # Display extracted data
             display_invoice_details(invoice_data_dict)
+            amounts_ok = display_amount_validation(agent.fakturoid_client, invoice_data)
+            if not amounts_ok:
+                print(
+                    "\n⚠️  Částky nesedí — doporučeno zkontrolovat položky / DPH před odesláním."
+                )
             
             # Ask for confirmation
             print(f"\n❓ Odeslat tuto fakturu do Fakturoidu?")

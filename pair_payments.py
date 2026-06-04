@@ -20,8 +20,8 @@ Default is dry-run (no API writes). Use --execute to create payments.
 
 Usage:
   uv run python pair_payments.py
-  uv run python pair_payments.py --since 2026-04-01
-  uv run python pair_payments.py --execute
+  uv run python pair_payments.py --since 1.1.2026
+  uv run python pair_payments.py --since 2026-04-01 --execute --confirm-all
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ import logging
 import re
 import sys
 from collections import Counter
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -50,6 +50,37 @@ from src.fx_cnb import CnbRatesClient
 PAYMENT_UNPAIRED_NEEDLE = "payment_unpaired"
 TODO_EXPENSE_UNPAIRED = "expense_payment_unpaired"
 TODO_INVOICE_UNPAIRED = "invoice_payment_unpaired"
+
+
+def parse_since_argument(raw: str) -> str:
+    """
+    Parse --since for Fakturoid API (ISO 8601 datetime).
+
+    Accepts:
+      - 2026-01-01 or 2026-01-01T12:00:00
+      - 1.1.2026, 01.01.2026 (Czech day.month.year)
+      - 1/1/2026
+    """
+    s = raw.strip()
+    if not s:
+        raise ValueError("empty --since")
+
+    if re.match(r"^\d{4}-\d{2}-\d{2}", s):
+        if "T" in s:
+            return s
+        return f"{s}T00:00:00"
+
+    m = re.match(r"^(\d{1,2})[./](\d{1,2})[./](\d{2,4})$", s)
+    if m:
+        day, month, year = int(m.group(1)), int(m.group(2)), int(m.group(3))
+        if year < 100:
+            year += 2000 if year < 70 else 1900
+        dt = date(year, month, day)
+        return datetime.combine(dt, datetime.min.time()).isoformat()
+
+    raise ValueError(
+        f"neznámý formát data: {raw!r} — použijte např. 1.1.2026 nebo 2026-01-01"
+    )
 
 
 def setup_pairing_logger(log_path: str = "logs/pair_payments.log") -> logging.Logger:
@@ -647,6 +678,7 @@ def run(
     expenses = client.list_unpaid_expenses()
     unpaid_expenses = filter_candidate_docs(expenses, "", enforce_currency=False)
 
+    print(f"Todo filter: since={since or 'all (no date limit)'}")
     print("Uncompleted todos by name:")
     for name, cnt in sorted(names.items(), key=lambda x: (-x[1], x[0])):
         if not name:
@@ -656,6 +688,30 @@ def run(
     print()
     print(f"Found {len(unpaired_expense_todos)} unpaired expense payment todo(s).")
     print(f"Found {len(unpaid_expenses)} unpaid expense(s) with remaining balance.\n")
+
+    if not unpaired_expense_todos and since is not None:
+        all_uncompleted = [
+            t
+            for t in client.list_todos(since=None)
+            if not t.get("completed_at")
+            and (t.get("name") or "").strip() == TODO_EXPENSE_UNPAIRED
+        ]
+        if all_uncompleted:
+            print(
+                f"⚠️  V zadaném období (since={since}) není žádný todo, "
+                f"ale v celé historii je {len(all_uncompleted)}× {TODO_EXPENSE_UNPAIRED}."
+            )
+            print(
+                "   Zkuste širší období, např.:"
+            )
+            print("   uv run python pair_payments.py")
+            print("   uv run python pair_payments.py --since 1.1.2026\n")
+            logger.warning(
+                "0 todos in since=%s but %s in full history",
+                since,
+                len(all_uncompleted),
+            )
+
     logger.info(
         "Loaded todos=%s unpaid_expenses=%s since=%s",
         len(unpaired_expense_todos),
@@ -695,7 +751,15 @@ def run(
         no_cnt = sum(1 for p in proposals if p.get("status") == "no_match")
         print()
         print(f"Dry-run finished. matched={matched_cnt}, ambiguous={amb_cnt}, no_match={no_cnt}.")
-        print("Run with --execute to apply, plus --confirm-all or --interactive.")
+        if matched_cnt == 0 and no_cnt > 0 and not unpaired_expense_todos:
+            print(
+                "Žádné párování — chybí nespárované bankovní todos (expense_payment_unpaired). "
+                "Výchozí běh načítá všechny todos; pokud používáte --since, zkuste starší datum."
+            )
+        elif matched_cnt > 0:
+            print("Run with --execute to apply, plus --confirm-all or --interactive.")
+        else:
+            print("Run with --execute to apply, plus --confirm-all or --interactive.")
         logger.info("Dry-run summary matched=%s ambiguous=%s no_match=%s", matched_cnt, amb_cnt, no_cnt)
         return 0
 
@@ -863,12 +927,17 @@ def main() -> int:
         "--since",
         type=str,
         default=None,
-        help="Fetch todos created after this ISO datetime (passed to Fakturoid todos.json since=...). Default: today 00:00",
+        metavar="DATE",
+        help=(
+            "Jen todos od tohoto data (Fakturoid since=...). "
+            "Formát: 1.1.2026, 01.01.2026, 2026-01-01. "
+            "Bez --since se načtou všechny todos (výchozí)."
+        ),
     )
     parser.add_argument(
         "--since-all",
         action="store_true",
-        help="Ignore default --since=today behavior and fetch all todos (can be slower).",
+        help="Stejné jako výchozí (všechny todos); ponecháno pro zpětnou kompatibilitu.",
     )
     parser.add_argument(
         "--amount-tolerance",
@@ -927,12 +996,16 @@ def main() -> int:
 
     output_csv = None if args.no_output_csv else args.output_csv
 
-    # Default since: today 00:00 local time (ISO). Fakturoid expects ISO 8601 datetime.
-    since = args.since
-    if args.since_all:
+    # Default: all todos (since=None). Optional --since limits the window.
+    since: Optional[str] = None
+    if args.since:
+        try:
+            since = parse_since_argument(args.since)
+        except ValueError as ex:
+            print(f"❌ {ex}")
+            return 1
+    elif args.since_all:
         since = None
-    elif not since:
-        since = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
 
     # Guided mode: run report, then ask user how to proceed.
     if not args.execute and not args.confirm_all and not args.interactive:

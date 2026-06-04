@@ -12,6 +12,27 @@ except ImportError:
 import re
 
 
+class AmountValidationError(ValueError):
+    """Raised when extracted invoice total does not match Fakturoid line calculation."""
+
+
+# At least 1 CZK or 1.5 % — covers rounding and net vs gross label mix-ups.
+_AMOUNT_ABS_TOLERANCE_MIN = 1.0
+_AMOUNT_REL_TOLERANCE = 0.015
+
+_REF_LABEL_PRIORITY = {
+    "total_amount (celkem)": 0,
+    "suma položek (total)": 1,
+    "suma položek (množství × cena)": 2,
+    "základ (total − DPH)": 3,
+    "tax_amount": 4,
+}
+
+_ROUNDING_LINE_NAME = "Zaokrouhlení"
+# Max gross gap auto-fixed by a rounding line (haléřové rozdíly na víceřádkových fakturách).
+_MAX_AUTO_ROUNDING_GAP = 2.0
+
+
 class FakturoidExpense(BaseModel):
     """Fakturoid expense format (received invoice)."""
     
@@ -33,6 +54,7 @@ class FakturoidExpense(BaseModel):
     private_note: Optional[str] = None
     currency: str = "CZK"
     tags: Optional[List[str]] = None
+    vat_price_mode: Optional[str] = None  # without_vat | from_total_with_vat
     
     # Payment info
     bank_account: Optional[str] = None
@@ -100,6 +122,7 @@ class FakturoidClient:
         # OAuth 2.0 token management
         self.access_token = None
         self.token_expires_at = None
+        self._account_vat_price_mode: Optional[str] = None
         
         # Get initial access token
         self._refresh_access_token()
@@ -974,10 +997,654 @@ class FakturoidClient:
             return 21
         return 0
 
+    def get_account_vat_price_mode(self) -> str:
+        """Map account VAT setting to expense API vat_price_mode."""
+        if self._account_vat_price_mode is not None:
+            return self._account_vat_price_mode
+        info = self.get_account_info()
+        raw = (info.get("vat_price_mode") or "without_vat").lower()
+        if raw in ("with_vat", "from_total_with_vat", "numerical_with_vat"):
+            self._account_vat_price_mode = "from_total_with_vat"
+        else:
+            self._account_vat_price_mode = "without_vat"
+        return self._account_vat_price_mode
+
+    @staticmethod
+    def _parse_line_quantity(raw: Any, default: float = 1.0) -> float:
+        if raw is None or raw == "":
+            return default
+        try:
+            return float(str(raw).replace(",", ".").strip())
+        except (TypeError, ValueError):
+            return default
+
+    @staticmethod
+    def _line_qty_unit_vat(line: Dict[str, Any]) -> Tuple[float, float, int]:
+        qty = FakturoidClient._parse_line_quantity(line.get("quantity"), 1.0)
+        unit = float(str(line.get("unit_price", 0)).replace(",", "."))
+        vat_rate = int(line.get("vat_rate") or 0)
+        return qty, unit, vat_rate
+
+    @staticmethod
+    def _compute_line_total_with_vat(
+        qty: float,
+        unit_price: float,
+        vat_rate: int,
+        vat_price_mode: str,
+        *,
+        zero_vat: bool,
+    ) -> float:
+        """Mirror Fakturoid expense line total (price including VAT)."""
+        if zero_vat or vat_rate <= 0:
+            return round(qty * unit_price, 2)
+        if vat_price_mode == "from_total_with_vat":
+            return round(qty * unit_price, 2)
+        net = qty * unit_price
+        return round(net * (1 + vat_rate / 100.0), 2)
+
+    @staticmethod
+    def _compute_line_vat_amount(
+        qty: float,
+        unit_price: float,
+        vat_rate: int,
+        vat_price_mode: str,
+        *,
+        zero_vat: bool,
+    ) -> float:
+        if zero_vat or vat_rate <= 0:
+            return 0.0
+        gross = qty * unit_price
+        if vat_price_mode == "from_total_with_vat":
+            net = gross / (1 + vat_rate / 100.0)
+            return round(gross - net, 2)
+        net = gross
+        return round(net * vat_rate / 100.0, 2)
+
+    def _compute_document_total(
+        self,
+        lines: List[Dict[str, Any]],
+        vat_price_mode: str,
+        *,
+        zero_vat: bool,
+    ) -> float:
+        total = 0.0
+        for line in lines:
+            qty, unit, vat_rate = self._line_qty_unit_vat(line)
+            total += self._compute_line_total_with_vat(
+                qty, unit, vat_rate, vat_price_mode, zero_vat=zero_vat
+            )
+        return round(total, 2)
+
+    def _compute_document_vat(
+        self,
+        lines: List[Dict[str, Any]],
+        vat_price_mode: str,
+        *,
+        zero_vat: bool,
+    ) -> float:
+        total_vat = 0.0
+        for line in lines:
+            qty, unit, vat_rate = self._line_qty_unit_vat(line)
+            total_vat += self._compute_line_vat_amount(
+                qty, unit, vat_rate, vat_price_mode, zero_vat=zero_vat
+            )
+        return round(total_vat, 2)
+
+    @staticmethod
+    def _compute_line_net(
+        qty: float,
+        unit_price: float,
+        vat_rate: int,
+        vat_price_mode: str,
+        *,
+        zero_vat: bool,
+    ) -> float:
+        if zero_vat or vat_rate <= 0:
+            return round(qty * unit_price, 2)
+        if vat_price_mode == "from_total_with_vat":
+            gross = qty * unit_price
+            return round(gross / (1 + vat_rate / 100.0), 2)
+        return round(qty * unit_price, 2)
+
+    def _compute_document_subtotal(
+        self,
+        lines: List[Dict[str, Any]],
+        vat_price_mode: str,
+        *,
+        zero_vat: bool,
+    ) -> float:
+        total = 0.0
+        for line in lines:
+            qty, unit, vat_rate = self._line_qty_unit_vat(line)
+            total += self._compute_line_net(
+                qty, unit, vat_rate, vat_price_mode, zero_vat=zero_vat
+            )
+        return round(total, 2)
+
+    def _compute_document_breakdown(
+        self,
+        lines: List[Dict[str, Any]],
+        vat_price_mode: str,
+        *,
+        zero_vat: bool,
+    ) -> Tuple[float, float, float]:
+        """Return (tax_base/subtotal, vat, gross) from expense lines."""
+        subtotal = self._compute_document_subtotal(
+            lines, vat_price_mode, zero_vat=zero_vat
+        )
+        vat = self._compute_document_vat(lines, vat_price_mode, zero_vat=zero_vat)
+        gross = round(subtotal + vat, 2)
+        return subtotal, vat, gross
+
+    @staticmethod
+    def _line_is_rounding(name: str) -> bool:
+        low = (name or "").lower()
+        return "zaokrouhl" in low or low.strip() == "rounding"
+
+    def _apply_rounding_line_if_needed(
+        self,
+        lines: List[Dict[str, Any]],
+        invoice_data: InvoiceData,
+        vat_price_mode: str,
+        *,
+        zero_vat: bool,
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+        """
+        Ensure tax_base + VAT from lines matches invoice total_amount.
+
+        If a small gap remains (typical per-line VAT rounding), append a 0% VAT line.
+        """
+        info: Dict[str, Any] = {
+            "rounding_line_added": False,
+            "rounding_gap": None,
+            "subtotal": None,
+            "vat_computed": None,
+            "gross_computed": None,
+            "invoice_total": None,
+            "invoice_tax": None,
+            "sum_base_plus_invoice_tax": None,
+        }
+
+        target_total = float(invoice_data.total_amount or 0)
+        if target_total <= 0.01:
+            return lines, info
+
+        subtotal, vat, gross = self._compute_document_breakdown(
+            lines, vat_price_mode, zero_vat=zero_vat
+        )
+        info.update(
+            {
+                "subtotal": subtotal,
+                "vat_computed": vat,
+                "gross_computed": gross,
+                "invoice_total": round(target_total, 2),
+            }
+        )
+
+        invoice_tax: Optional[float] = None
+        if invoice_data.tax_amount is not None and float(invoice_data.tax_amount) > 0.01:
+            invoice_tax = round(float(invoice_data.tax_amount), 2)
+            info["invoice_tax"] = invoice_tax
+            info["sum_base_plus_invoice_tax"] = round(subtotal + invoice_tax, 2)
+
+        gap = round(target_total - gross, 2)
+        info["rounding_gap"] = gap
+
+        if abs(gap) <= 0.005:
+            return lines, info
+
+        if any(self._line_is_rounding(str(l.get("name") or "")) for l in lines):
+            return lines, info
+
+        if abs(gap) > _MAX_AUTO_ROUNDING_GAP:
+            return lines, info
+
+        rounding_line = {
+            "name": _ROUNDING_LINE_NAME,
+            "quantity": "1",
+            "unit_price": str(gap),
+            "vat_rate": 0,
+        }
+        new_lines = list(lines) + [rounding_line]
+        info["rounding_line_added"] = True
+
+        sub2, vat2, gross2 = self._compute_document_breakdown(
+            new_lines, vat_price_mode, zero_vat=zero_vat
+        )
+        info["subtotal_after"] = sub2
+        info["vat_computed_after"] = vat2
+        info["gross_computed_after"] = round(sub2 + vat2, 2)
+
+        return new_lines, info
+
+    def _prepare_expense_lines(
+        self, invoice_data: InvoiceData
+    ) -> Tuple[List[Dict[str, Any]], bool, Dict[str, Any]]:
+        """Build lines, pick VAT mode, apply rounding line if needed, validate."""
+        lines, from_detailed = self._build_expense_lines(invoice_data)
+        validation = self._validate_amounts_from_lines(
+            invoice_data, lines, from_detailed
+        )
+        lines, rounding_info = self._apply_rounding_line_if_needed(
+            lines,
+            invoice_data,
+            validation["vat_price_mode"],
+            zero_vat=validation["zero_vat"],
+        )
+        validation["rounding"] = rounding_info
+        if rounding_info.get("rounding_line_added"):
+            print(
+                f"  ℹ️  Přidán řádek {_ROUNDING_LINE_NAME}: "
+                f"{rounding_info['rounding_gap']:+.2f} "
+                f"(základ {rounding_info['subtotal']} + DPH {rounding_info['vat_computed']} "
+                f"→ {rounding_info['gross_computed']}, faktura {rounding_info['invoice_total']})"
+            )
+            validation = self._validate_amounts_from_lines(
+                invoice_data, lines, from_detailed
+            )
+            validation["rounding"] = rounding_info
+        validation["lines"] = lines
+        return lines, from_detailed, validation
+
+    @staticmethod
+    def _amount_tolerance(reference: float) -> float:
+        ref = max(abs(reference), 1.0)
+        return max(_AMOUNT_ABS_TOLERANCE_MIN, ref * _AMOUNT_REL_TOLERANCE)
+
+    @classmethod
+    def _amounts_match(cls, a: float, b: float) -> bool:
+        return abs(a - b) <= cls._amount_tolerance(max(a, b))
+
+    def _collect_reference_amounts(
+        self, invoice_data: InvoiceData
+    ) -> List[Tuple[str, float]]:
+        """Candidate invoice totals (gross, net, line sums) — not only total_amount."""
+        refs: List[Tuple[str, float]] = []
+        total = float(invoice_data.total_amount or 0)
+        tax = (
+            float(invoice_data.tax_amount)
+            if invoice_data.tax_amount is not None
+            else 0.0
+        )
+
+        if total > 0.01:
+            refs.append(("total_amount (celkem)", round(total, 2)))
+        if tax > 0.01:
+            refs.append(("tax_amount", round(tax, 2)))
+            if total > tax + 0.01:
+                refs.append(("základ (total − DPH)", round(total - tax, 2)))
+
+        if invoice_data.line_items:
+            sum_line_total = 0.0
+            sum_qty_price = 0.0
+            has_line_total = False
+            for item in invoice_data.line_items:
+                lt = item.get("total")
+                if lt is not None:
+                    try:
+                        v = float(lt)
+                        if v > 0:
+                            sum_line_total += v
+                            has_line_total = True
+                    except (TypeError, ValueError):
+                        pass
+                up = item.get("unit_price")
+                qty = item.get("quantity", 1)
+                if up is not None:
+                    try:
+                        sum_qty_price += float(qty) * float(up)
+                    except (TypeError, ValueError):
+                        pass
+            if has_line_total and sum_line_total > 0.01:
+                refs.append(("suma položek (total)", round(sum_line_total, 2)))
+            if sum_qty_price > 0.01:
+                refs.append(
+                    ("suma položek (množství × cena)", round(sum_qty_price, 2))
+                )
+
+        seen: set = set()
+        unique: List[Tuple[str, float]] = []
+        for label, val in refs:
+            key = round(val, 2)
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append((label, key))
+        return unique
+
+    def _pick_vat_price_mode(
+        self,
+        totals_by_mode: Dict[str, float],
+        references: List[Tuple[str, float]],
+        *,
+        extracted_total: float,
+        account_mode: str,
+        from_detailed: bool,
+        zero_vat: bool,
+    ) -> Tuple[str, Optional[str], float, bool]:
+        """
+        Choose vat_price_mode and whether amounts are consistent.
+
+        Returns:
+            (mode, matched_reference_label, diff_vs_matched_ref, ok)
+        """
+        if not from_detailed or zero_vat:
+            mode = "without_vat"
+            computed = totals_by_mode[mode]
+            if references:
+                label, ref = min(
+                    references,
+                    key=lambda r: abs(computed - r[1]),
+                )
+                diff = round(computed - ref, 2)
+                ok = self._amounts_match(computed, ref)
+                return mode, label, diff, ok
+            return mode, None, 0.0, True
+
+        best: Optional[Tuple[int, float, str, str]] = None
+        for mode, computed in totals_by_mode.items():
+            for label, ref in references:
+                if not self._amounts_match(computed, ref):
+                    continue
+                priority = _REF_LABEL_PRIORITY.get(label, 50)
+                diff = abs(computed - ref)
+                score = (priority, diff)
+                if best is None or score < (best[0], best[1]):
+                    best = (priority, diff, mode, label)
+
+        if best is not None:
+            _, diff, mode, label = best
+            ref_val = next(v for l, v in references if l == label)
+            return mode, label, round(totals_by_mode[mode] - ref_val, 2), True
+
+        # No reference matched — trust line items if total_amount missing / zero
+        if extracted_total <= 0.01 and from_detailed:
+            return account_mode, None, 0.0, True
+
+        if not references:
+            return account_mode, None, 0.0, from_detailed
+
+        # Have total_amount but it matches neither mode (wrong field / DPH režim)
+        mode = min(
+            totals_by_mode,
+            key=lambda m: min(
+                abs(totals_by_mode[m] - ref) for _, ref in references
+            ),
+        )
+        label, ref = min(
+            references,
+            key=lambda pair: abs(totals_by_mode[mode] - pair[1]),
+        )
+        diff = round(totals_by_mode[mode] - ref, 2)
+        ok = self._amounts_match(totals_by_mode[mode], ref)
+        return mode, label, diff, ok
+
+    def _build_expense_lines(
+        self, invoice_data: InvoiceData
+    ) -> Tuple[List[Dict[str, Any]], bool]:
+        """
+        Build Fakturoid expense lines from extracted data.
+
+        Returns:
+            (lines, from_detailed_line_items) — False when using total/tax fallback.
+        """
+        lines: Optional[List[Dict[str, Any]]] = None
+        from_detailed = False
+
+        if invoice_data.line_items and len(invoice_data.line_items) > 0:
+            billable_items = [
+                item
+                for item in invoice_data.line_items
+                if self._parse_line_quantity(item.get("quantity"), 0) > 0
+            ]
+            skipped_zero_qty = len(invoice_data.line_items) - len(billable_items)
+            if skipped_zero_qty:
+                print(
+                    f"  ℹ️  Přeskočeno {skipped_zero_qty} položek s množstvím 0 "
+                    f"(Fakturoid vyžaduje quantity > 0)"
+                )
+
+            has_valid_prices = any(
+                item.get("unit_price") and float(item.get("unit_price", 0)) > 0
+                for item in billable_items
+            )
+            if has_valid_prices:
+                from_detailed = True
+                lines = []
+                for item in billable_items:
+                    qty = self._parse_line_quantity(item.get("quantity"), 1.0)
+                    declared = self._line_item_declared_vat_rate(item)
+                    vat_rate = (
+                        declared
+                        if declared is not None
+                        else self._default_vat_rate_when_line_unspecified(invoice_data)
+                    )
+                    desc = item.get("description") or item.get("name") or ""
+                    lines.append(
+                        {
+                            "name": desc,
+                            "quantity": str(qty),
+                            "unit_price": str(item.get("unit_price", 0)),
+                            "vat_rate": vat_rate,
+                        }
+                    )
+
+        if not lines:
+            total = float(invoice_data.total_amount)
+            if invoice_data.tax_amount and invoice_data.tax_amount > 0:
+                tax = float(invoice_data.tax_amount)
+                price_without_vat = total - tax
+                if price_without_vat > 0:
+                    vat_rate = max(0, min(100, round((tax / price_without_vat) * 100)))
+                elif self._invoice_implies_zero_vat(invoice_data):
+                    vat_rate = 0
+                    price_without_vat = total
+                else:
+                    vat_rate = self._default_vat_rate_when_line_unspecified(invoice_data)
+                    price_without_vat = total
+            else:
+                price_without_vat = total
+                vat_rate = 0
+
+            lines = [
+                {
+                    "name": invoice_data.notes or f"Invoice {invoice_data.invoice_number}",
+                    "quantity": "1.0",
+                    "unit_price": str(round(price_without_vat, 2)),
+                    "vat_rate": vat_rate,
+                }
+            ]
+
+        return lines, from_detailed
+
+    def _validate_amounts_from_lines(
+        self,
+        invoice_data: InvoiceData,
+        lines: List[Dict[str, Any]],
+        from_detailed: bool,
+    ) -> Dict[str, Any]:
+        """
+        Check line items vs. reference amounts (celkem, základ, sumy položek).
+
+        Accepts match in either VAT price mode; does not require total_amount alone.
+        """
+        zero_vat = self._invoice_implies_zero_vat(invoice_data)
+        account_mode = self.get_account_vat_price_mode()
+        references = self._collect_reference_amounts(invoice_data)
+        extracted_total = round(float(invoice_data.total_amount or 0), 2)
+
+        totals_by_mode = {
+            "without_vat": self._compute_document_total(
+                lines, "without_vat", zero_vat=zero_vat
+            ),
+            "from_total_with_vat": self._compute_document_total(
+                lines, "from_total_with_vat", zero_vat=zero_vat
+            ),
+        }
+
+        chosen_mode, matched_ref, diff, ok = self._pick_vat_price_mode(
+            totals_by_mode,
+            references,
+            extracted_total=extracted_total,
+            account_mode=account_mode,
+            from_detailed=from_detailed,
+            zero_vat=zero_vat,
+        )
+        computed_total = totals_by_mode[chosen_mode]
+
+        # When celkem was extracted, it must match at least one VAT mode total
+        if extracted_total > 0.01 and from_detailed and not zero_vat:
+            matches_extracted = any(
+                self._amounts_match(totals_by_mode[m], extracted_total)
+                for m in totals_by_mode
+            )
+            if not matches_extracted:
+                ok = False
+
+        warnings: List[str] = []
+        if extracted_total <= 0.01 and from_detailed:
+            warnings.append(
+                "total_amount chybí nebo je 0 — kontrola podle položek faktury"
+            )
+        elif (
+            matched_ref == "základ (total − DPH)"
+            and chosen_mode == "from_total_with_vat"
+        ):
+            warnings.append(
+                "total_amount vypadá jako základ bez DPH; použit režim z cílové částky"
+            )
+
+        tax_warning: Optional[str] = None
+        computed_tax: Optional[float] = None
+        if (
+            invoice_data.tax_amount is not None
+            and float(invoice_data.tax_amount) > 0.01
+            and not zero_vat
+        ):
+            computed_tax = self._compute_document_vat(
+                lines, chosen_mode, zero_vat=zero_vat
+            )
+            expected_tax = round(float(invoice_data.tax_amount), 2)
+            if not self._amounts_match(computed_tax, expected_tax):
+                tax_warning = (
+                    f"DPH z položek ({computed_tax}) vs. tax_amount ({expected_tax})"
+                )
+
+        mode_labels = {
+            "without_vat": "ze základu (bez DPH)",
+            "from_total_with_vat": "z cílové částky (s DPH)",
+        }
+
+        ref_display = (
+            f"{matched_ref}"
+            if matched_ref
+            else (
+                "položky (bez spolehlivého total_amount)"
+                if extracted_total <= 0.01
+                else "—"
+            )
+        )
+
+        return {
+            "ok": ok,
+            "expected_total": extracted_total,
+            "reference_label": matched_ref,
+            "reference_display": ref_display,
+            "references": references,
+            "computed_total": computed_total,
+            "diff": diff,
+            "vat_price_mode": chosen_mode,
+            "vat_price_mode_label": mode_labels.get(chosen_mode, chosen_mode),
+            "account_vat_price_mode": account_mode,
+            "totals_by_mode": totals_by_mode,
+            "from_detailed_line_items": from_detailed,
+            "zero_vat": zero_vat,
+            "warnings": warnings,
+            "tax_warning": tax_warning,
+            "computed_tax": computed_tax,
+            "tolerance_note": f"min {_AMOUNT_ABS_TOLERANCE_MIN} Kč nebo {_AMOUNT_REL_TOLERANCE * 100:.1f} %",
+        }
+
+    def validate_expense_amounts(
+        self,
+        invoice_data: InvoiceData,
+    ) -> Dict[str, Any]:
+        """Check Fakturoid line totals; add rounding line when base+VAT ≠ invoice total."""
+        _lines, _from_detailed, validation = self._prepare_expense_lines(invoice_data)
+        return validation
+
+    @staticmethod
+    def format_amount_validation_message(validation: Dict[str, Any]) -> str:
+        """Human-readable Czech summary for CLI / logs."""
+        out = [
+            "Kontrola částek (položky vs. částky na faktuře):",
+            f"  total_amount (extrahováno): {validation['expected_total']}",
+        ]
+        refs = validation.get("references") or []
+        if refs:
+            ref_parts = [f"{label}={val}" for label, val in refs[:5]]
+            out.append(f"  Referenční částky: {', '.join(ref_parts)}")
+        out.append(
+            f"  Výpočet Fakturoid ({validation['vat_price_mode_label']}): "
+            f"{validation['computed_total']}"
+        )
+        if validation.get("reference_display"):
+            out.append(f"  Porovnáno s: {validation['reference_display']}")
+        if validation.get("computed_tax") is not None:
+            out.append(f"  DPH ve výpočtu: {validation['computed_tax']}")
+        by_mode = validation.get("totals_by_mode") or {}
+        if validation.get("from_detailed_line_items") and len(by_mode) > 1:
+            out.append(f"  Celkem ze základu: {by_mode.get('without_vat')}")
+            out.append(f"  Celkem z cílové částky: {by_mode.get('from_total_with_vat')}")
+        for w in validation.get("warnings") or []:
+            out.append(f"  ⚠ {w}")
+        diff = validation.get("diff", 0)
+        if validation.get("ok"):
+            if abs(diff) > 0.001:
+                out.append(
+                    f"  ✓ Souhlasí (rozdíl {diff:+.2f}, {validation.get('tolerance_note')})"
+                )
+            else:
+                out.append("  ✓ Souhlasí")
+        else:
+            out.append(
+                f"  ✗ Nesoulad {diff:+.2f} ({validation.get('tolerance_note')})"
+            )
+        if validation.get("tax_warning"):
+            out.append(f"  ⚠ {validation['tax_warning']}")
+        rounding = validation.get("rounding") or {}
+        if rounding.get("subtotal") is not None:
+            out.append(
+                f"  Základ + DPH (položky): {rounding['subtotal']} + "
+                f"{rounding['vat_computed']} = {rounding['gross_computed']}"
+            )
+            if rounding.get("invoice_tax") is not None:
+                out.append(
+                    f"  Základ + DPH (z faktury): {rounding['subtotal']} + "
+                    f"{rounding['invoice_tax']} = {rounding['sum_base_plus_invoice_tax']}"
+                )
+            if rounding.get("invoice_total") is not None:
+                out.append(f"  Celkem na faktuře: {rounding['invoice_total']}")
+            if rounding.get("rounding_line_added"):
+                out.append(
+                    f"  ✓ Zaokrouhlení: {rounding['rounding_gap']:+.2f} → "
+                    f"součet {rounding.get('gross_computed_after')}"
+                )
+            elif (
+                rounding.get("rounding_gap") is not None
+                and abs(rounding["rounding_gap"]) > 0.005
+            ):
+                out.append(
+                    f"  ⚠ Rozdíl základ+DPH vs. celkem: {rounding['rounding_gap']:+.2f} "
+                    f"(mimo auto zaokrouhlení ±{_MAX_AUTO_ROUNDING_GAP})"
+                )
+        return "\n".join(out)
+
     def convert_extracted_to_expense(
         self,
         invoice_data: InvoiceData,
-        auto_create_subject: bool = True
+        auto_create_subject: bool = True,
+        amount_validation: Optional[Dict[str, Any]] = None,
     ) -> Tuple[int, FakturoidExpense]:
         """Convert extracted invoice data to Fakturoid expense format.
         
@@ -1011,66 +1678,30 @@ class FakturoidClient:
         
         if not subject_id:
             raise ValueError(f"Subject not found for supplier: {invoice_data.supplier_name}")
-        
-        # Prepare line items
-        lines = []
-        if invoice_data.line_items and len(invoice_data.line_items) > 0:
-            # Check if line items have valid prices
-            has_valid_prices = any(
-                item.get('unit_price') and float(item.get('unit_price', 0)) > 0 
-                for item in invoice_data.line_items
+
+        if amount_validation and amount_validation.get("lines"):
+            lines = amount_validation["lines"]
+            _from_detailed = amount_validation.get(
+                "from_detailed_line_items", True
             )
-            
-            if has_valid_prices:
-                # Use extracted line items
-                for item in invoice_data.line_items:
-                    declared = self._line_item_declared_vat_rate(item)
-                    vat_rate = (
-                        declared
-                        if declared is not None
-                        else self._default_vat_rate_when_line_unspecified(invoice_data)
-                    )
-                    desc = item.get('description') or item.get('name') or ''
-                    lines.append({
-                        'name': desc,
-                        'quantity': str(item.get('quantity', 1)),
-                        'unit_price': str(item.get('unit_price', 0)),
-                        'vat_rate': vat_rate,
-                    })
-            else:
-                # Line items exist but without prices - use total as fallback
-                lines = None
+            validation = amount_validation
         else:
-            # No line items extracted
-            lines = None
-        
-        if not lines:
-            # Create a single line item with total
-            total = float(invoice_data.total_amount)
-            
-            # Determine VAT rate based on whether tax is specified
-            if invoice_data.tax_amount and invoice_data.tax_amount > 0:
-                tax = float(invoice_data.tax_amount)
-                price_without_vat = total - tax
-                if price_without_vat > 0:
-                    vat_rate = max(0, min(100, round((tax / price_without_vat) * 100)))
-                elif self._invoice_implies_zero_vat(invoice_data):
-                    vat_rate = 0
-                    price_without_vat = total
-                else:
-                    vat_rate = self._default_vat_rate_when_line_unspecified(invoice_data)
-                    price_without_vat = total
-            else:
-                # No tax specified - treat total as price WITHOUT VAT, VAT rate = 0%
-                price_without_vat = total
-                vat_rate = 0
-            
-            lines = [{
-                'name': invoice_data.notes or f'Invoice {invoice_data.invoice_number}',
-                'quantity': '1.0',
-                'unit_price': str(round(price_without_vat, 2)),
-                'vat_rate': vat_rate
-            }]
+            lines, _from_detailed, validation = self._prepare_expense_lines(
+                invoice_data
+            )
+        if not validation["ok"]:
+            raise AmountValidationError(
+                self.format_amount_validation_message(validation)
+            )
+        vat_price_mode = validation["vat_price_mode"]
+        if (
+            _from_detailed
+            and vat_price_mode != validation["account_vat_price_mode"]
+        ):
+            print(
+                f"\nℹ️  DPH režim: použit {validation['vat_price_mode_label']} "
+                f"(výchozí účet: {validation['account_vat_price_mode']})"
+            )
         
         # Normalize currency (handle common variations)
         currency = invoice_data.currency or "CZK"
@@ -1093,6 +1724,7 @@ class FakturoidClient:
         fakturoid_expense = FakturoidExpense(
             subject_id=subject_id,
             lines=lines,
+            vat_price_mode=vat_price_mode,
             original_number=invoice_data.invoice_number,
             variable_symbol=invoice_data.variable_symbol,
             issued_on=invoice_data.issue_date,
@@ -1120,9 +1752,17 @@ class FakturoidClient:
         Returns:
             Created expense from Fakturoid
         """
+        validation = self.validate_expense_amounts(invoice_data)
+        print(f"\n{self.format_amount_validation_message(validation)}")
+        if not validation["ok"]:
+            raise AmountValidationError(
+                self.format_amount_validation_message(validation)
+            )
+
         subject_id, fakturoid_expense = self.convert_extracted_to_expense(
             invoice_data,
-            auto_create_subject=auto_create_subject
+            auto_create_subject=auto_create_subject,
+            amount_validation=validation,
         )
         
         return self.create_expense_invoice(fakturoid_expense.model_dump(exclude_none=True))

@@ -266,7 +266,17 @@ class InvoiceProcessingAgent:
                 print(f"  {i}. {item.get('description', 'N/A')} - "
                       f"{item.get('quantity', 1)} x {item.get('unit_price', 0)}")
         
-        print("="*60 + "\n")
+        print("="*60)
+        try:
+            validation = self.fakturoid_client.validate_expense_amounts(invoice_data)
+            print(
+                self.fakturoid_client.format_amount_validation_message(validation)
+            )
+            if not validation.get("ok"):
+                print("⚠️  Amount check failed — review line prices / VAT before submit.")
+        except Exception as e:
+            print(f"⚠️  Amount check skipped: {e}")
+        print()
     
     def _move_to_processed(
         self, 

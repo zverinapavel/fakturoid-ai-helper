@@ -97,7 +97,7 @@ Required fields:
 - invoice_number: The invoice number or ID
 - issue_date: Invoice issue date in YYYY-MM-DD format
 - supplier_name: Name of the company/supplier
-- total_amount: Total amount including tax (as a number)
+- total_amount: Invoice GRAND TOTAL including VAT — use the row labeled Celkem, Celkem k úhradě, Total, Amount due, or equivalent FINAL total. Must NOT be 0 when another total exists. Do NOT use partial payments, deposits, credit balance, or "already paid" unless that is the only total on the document. If both "základ" and "celkem s DPH" exist, use celkem s DPH.
 
 Optional fields (if available):
 - due_date: Payment due date in YYYY-MM-DD format
@@ -123,7 +123,7 @@ Other fields:
 - line_items: Array of line objects. Each line MUST include:
   - description (or name): product/service text from the invoice table row
   - quantity: number (default 1)
-  - unit_price: price per unit before local VAT (number)
+  - unit_price: unit price as printed on the invoice row (number; may be with or without VAT — keep the document value)
   - total: optional line total
   - vat_rate: INTEGER percent for THIS line only — use values like 0, 10, 15, 21 (Czech rates). Read from columns named Tax, VAT, Rate, %, DPH, or similar. If the row shows 0%, 0, exempt, or reverse charge for that line, set vat_rate to 0. Do NOT assume 21% for foreign invoices.
 - notes: Any additional notes or payment instructions
@@ -469,8 +469,9 @@ VALIDATION CHECKLIST:
    - Common mistakes: extracting "Reverse charge applies" or "Tax obligation transferred" as line items
 
 2. **Amounts Check**:
-   - Does total_amount match the invoice total?
-   - If line_items exist, do they roughly add up to total_amount?
+   - Is total_amount the final Celkem / Total including VAT (not 0, not a subtotal)?
+   - If line_items exist, do they add up to total_amount in at least one reasonable way (with or without VAT)?
+   - Fix total_amount if a wrong field was used (e.g. advance, zero balance to pay).
    
 3. **Date Format Check**:
    - Are dates in YYYY-MM-DD format?
